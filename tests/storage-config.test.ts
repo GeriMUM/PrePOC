@@ -23,18 +23,21 @@ test("connected Blob stores accept managed OIDC without a static token", () => {
   assert.ok(storage() instanceof BlobStore);
 });
 
+test("store selection does not require OIDC credentials in process.env", () => {
+  process.env.BLOB_STORE_ID = "store_test";
+  assert.equal(process.env.VERCEL_OIDC_TOKEN, undefined);
+  assert.ok(storage() instanceof BlobStore);
+});
+
 test("legacy static-token Blob authentication remains supported", () => {
   process.env.BLOB_READ_WRITE_TOKEN = "test-static-token";
   assert.ok(storage() instanceof BlobStore);
 });
 
-test("missing or incomplete Blob credentials fail explicitly", () => {
+test("missing Blob store and static-token configuration fail explicitly", () => {
   const missing = () => assert.throws(storage, (error: unknown) =>
     error instanceof AppError && error.code === "STORAGE_NOT_CONFIGURED");
   missing();
-  process.env.BLOB_STORE_ID = "store_test";
-  missing();
-  delete process.env.BLOB_STORE_ID;
   process.env.VERCEL_OIDC_TOKEN = "test-runtime-token";
   missing();
   process.env.BLOB_STORE_ID = " ";

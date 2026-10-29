@@ -63,7 +63,8 @@ For a local production build, set `STORAGE_DRIVER=file` and a random
    the latest commit.
 2. In Vercel Storage, create a **private** Blob store and connect it to the
    project for Production. Vercel adds `BLOB_STORE_ID` and supplies a rotating
-   `VERCEL_OIDC_TOKEN` at runtime; the Blob SDK handles authentication and refresh.
+   OIDC credentials at runtime, including through the request context rather than
+   necessarily `process.env`; the Blob SDK handles authentication and refresh.
    Do not copy or manually set the OIDC token.
    A public store is not suitable for drafts.
 3. Add environment variables:

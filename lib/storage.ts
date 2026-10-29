@@ -120,8 +120,9 @@ export function storage(): JsonStore {
   const driver = process.env.STORAGE_DRIVER ?? (process.env.NODE_ENV === "production" ? "blob" : "file");
   if (driver === "blob") {
     const hasToken = Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
-    const hasOidc = Boolean(process.env.BLOB_STORE_ID?.trim() && process.env.VERCEL_OIDC_TOKEN?.trim());
-    if (!hasToken && !hasOidc) throw new AppError("STORAGE_NOT_CONFIGURED", 503);
+    // The SDK resolves rotating OIDC credentials from Vercel's request context.
+    const hasStore = Boolean(process.env.BLOB_STORE_ID?.trim());
+    if (!hasToken && !hasStore) throw new AppError("STORAGE_NOT_CONFIGURED", 503);
     return new BlobStore();
   }
   if (driver === "file" && !process.env.VERCEL) return new FileStore(path.join(process.cwd(), ".data"));
