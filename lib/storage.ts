@@ -119,7 +119,9 @@ export class BlobStore implements JsonStore {
 export function storage(): JsonStore {
   const driver = process.env.STORAGE_DRIVER ?? (process.env.NODE_ENV === "production" ? "blob" : "file");
   if (driver === "blob") {
-    if (!process.env.BLOB_READ_WRITE_TOKEN) throw new AppError("STORAGE_NOT_CONFIGURED", 503);
+    const hasToken = Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
+    const hasOidc = Boolean(process.env.BLOB_STORE_ID?.trim() && process.env.VERCEL_OIDC_TOKEN?.trim());
+    if (!hasToken && !hasOidc) throw new AppError("STORAGE_NOT_CONFIGURED", 503);
     return new BlobStore();
   }
   if (driver === "file" && !process.env.VERCEL) return new FileStore(path.join(process.cwd(), ".data"));

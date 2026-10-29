@@ -62,14 +62,17 @@ For a local production build, set `STORAGE_DRIVER=file` and a random
    reports `STATIC_BUILD_NO_OUT_DIR`, check these project settings and redeploy
    the latest commit.
 2. In Vercel Storage, create a **private** Blob store and connect it to the
-   project. Ensure `BLOB_READ_WRITE_TOKEN` is available to the deployment.
+   project for Production. Vercel adds `BLOB_STORE_ID` and supplies a rotating
+   `VERCEL_OIDC_TOKEN` at runtime; the Blob SDK handles authentication and refresh.
+   Do not copy or manually set the OIDC token.
    A public store is not suitable for drafts.
 3. Add environment variables:
 
    | Variable | Value |
    | --- | --- |
    | `STORAGE_DRIVER` | `blob` |
-   | `BLOB_READ_WRITE_TOKEN` | Provided by the connected private Blob store |
+   | `BLOB_STORE_ID` | Added by the connected private Blob store |
+   | `BLOB_READ_WRITE_TOKEN` | Optional alternative for static-token authentication, e.g. outside Vercel |
    | `SESSION_SECRET` | A randomly generated secret, at least 32 characters |
    | `GEMINI_API_KEY` | Server-only Gemini API key from Google AI Studio |
    | `GEMINI_MODEL` | `gemini-2.5-flash-lite` (default) |
