@@ -54,7 +54,7 @@ test("Gemini request uses a server-only header, bounded generation, language, dr
   let calls = 0;
   const fetcher: typeof fetch = async (url, init) => {
     calls++;
-    assert.equal(url, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent");
+    assert.equal(url, "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent");
     assert.equal(new Headers(init?.headers).get("x-goog-api-key"), "test-key-not-real");
     assert.equal(init?.cache, "no-store");
     assert.ok(init?.signal);
@@ -62,7 +62,7 @@ test("Gemini request uses a server-only header, bounded generation, language, dr
     assert.match(body.systemInstruction.parts[0].text, /Deutsch/);
     assert.match(body.systemInstruction.parts[0].text, /Time booking/);
     assert.doesNotMatch(JSON.stringify(body), /test-key-not-real/);
-    assert.deepEqual(body.generationConfig, { maxOutputTokens: 800, thinkingConfig: { thinkingBudget: 0 } });
+    assert.deepEqual(body.generationConfig, { maxOutputTokens: 800, thinkingConfig: { thinkingLevel: "minimal" } });
     assert.deepEqual(body.contents, [{ role: "user", parts: [{ text: input.messages[0].text }] }]);
     return Response.json(success('What would you simplify?\n```idea-summary\n{"title":"Easier booking"}\n```'));
   };
@@ -71,6 +71,17 @@ test("Gemini request uses a server-only header, bounded generation, language, dr
   assert.equal(reply.text, "What would you simplify?");
   assert.deepEqual(reply.summary, { title: "Easier booking" });
   assert.match(reply.content, /idea-summary/);
+});
+
+test("configured legacy models retain compatible thinking parameters", async () => {
+  process.env.GEMINI_MODEL = "gemini-2.5-flash-lite";
+  await geminiReply(input, async (url, init) => {
+    assert.match(String(url), /gemini-2\.5-flash-lite:generateContent$/);
+    assert.deepEqual(JSON.parse(String(init?.body)).generationConfig, {
+      maxOutputTokens: 800, thinkingConfig: { thinkingBudget: 0 },
+    });
+    return Response.json(success("Which task would you improve?"));
+  });
 });
 
 test("chat schema rejects invalid or unbounded input and prevents forwarding identity", () => {

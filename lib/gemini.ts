@@ -68,7 +68,7 @@ export async function geminiReply(input: unknown, fetcher: typeof fetch = fetch)
   if (!parsed.success) throw new AppError("INVALID_INPUT");
   const apiKey = geminiApiKey();
   if (!apiKey) throw new AppError("GEMINI_NOT_CONFIGURED", 503);
-  const model = process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash-lite";
+  const model = process.env.GEMINI_MODEL?.trim() || "gemini-3.1-flash-lite";
   if (!/^gemini-[a-z0-9.-]+$/.test(model)) throw new AppError("GEMINI_INVALID_CONFIG", 503);
   const { fields, language, messages } = parsed.data;
   let response: Response;
@@ -81,7 +81,11 @@ export async function geminiReply(input: unknown, fetcher: typeof fetch = fetch)
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: coachingContext({ ...emptyIdea(), ...fields }, language) }] },
         contents: messages.map(({ role, text }) => ({ role, parts: [{ text }] })),
-        generationConfig: { maxOutputTokens: 800, thinkingConfig: { thinkingBudget: 0 } },
+        generationConfig: {
+          maxOutputTokens: 800,
+          ...(model.startsWith("gemini-2.5-flash") ? { thinkingConfig: { thinkingBudget: 0 } } :
+            model === "gemini-3.1-flash-lite" ? { thinkingConfig: { thinkingLevel: "minimal" } } : {}),
+        },
       }),
     });
   } catch (error) {

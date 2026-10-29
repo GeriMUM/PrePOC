@@ -76,7 +76,7 @@ For a local production build, set `STORAGE_DRIVER=file` and a random
    | `BLOB_READ_WRITE_TOKEN` | Optional alternative for static-token authentication, e.g. outside Vercel |
    | `SESSION_SECRET` | A randomly generated secret, at least 32 characters |
    | `GEMINI_API_KEY` | Server-only Gemini API key from Google AI Studio |
-   | `GEMINI_MODEL` | `gemini-2.5-flash-lite` (default) |
+   | `GEMINI_MODEL` | `gemini-3.1-flash-lite` (default) |
 
    Generate a session secret with:
 
@@ -131,9 +131,10 @@ JSON files regularly according to company retention and backup requirements.
    source code, or a chat message.
    The previous name `GOOGLE_GENERATIVE_AI_API_KEY` is also supported.
    If both are nonempty, `GEMINI_API_KEY` takes precedence.
-3. Optionally set `GEMINI_MODEL=gemini-2.5-flash-lite`. This is the default
+3. Optionally set `GEMINI_MODEL=gemini-3.1-flash-lite`. This is the default
    lightweight model. Check current availability and free quota in AI Studio.
-   Any replacement model must support `thinkingConfig.thinkingBudget=0`.
+   The default uses `thinkingLevel=minimal`; legacy Gemini 2.5 Flash models use
+   `thinkingBudget=0`. Other configured models use their default thinking settings.
 4. Restart the development server or redeploy. The workshop uses its own chat,
    not a Microsoft iframe. Old `COPILOT_*` variables do not select its provider.
 5. Test English and German, a follow-up question, a suggested summary, applying
