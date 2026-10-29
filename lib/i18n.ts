@@ -158,6 +158,11 @@ export type Messages = typeof en;
 const errors: Record<Language, Record<string, string>> = {
   en: {
     GEMINI_NOT_CONFIGURED: en.agentSetup,
+    GEMINI_KEY_INVALID: "Google rejected the API key as invalid or expired. Replace GEMINI_API_KEY with a Gemini API key from Google AI Studio, then redeploy. Do not share the key.",
+    GEMINI_API_DISABLED: "The Generative Language API is disabled for this key's Google Cloud project. Enable it in that project, then retry.",
+    GEMINI_MODEL_UNAVAILABLE: "Google could not find the configured Gemini model for this API key. Check GEMINI_MODEL and model availability in Google AI Studio.",
+    GEMINI_ACCESS_DENIED: "Google denied access. Check the API key's restrictions, project permissions, and Gemini API availability in your region.",
+    GEMINI_REQUEST_REJECTED: "Google rejected the chat request (HTTP 400). The request parameters or project/free-tier prerequisites are not accepted. The organizer should check the Gemini configuration.",
     GEMINI_INVALID_CONFIG: "Gemini rejected the configuration. The organizer should check the API key, model, region, and project permissions.",
     GEMINI_QUOTA_EXCEEDED: "The Gemini rate limit or free quota has been reached. Wait and try again later, or check the quota in Google AI Studio. Your message is preserved.",
     COACH_RATE_LIMITED: "Please wait at least 10 seconds between messages before trying again.",
@@ -189,6 +194,11 @@ const errors: Record<Language, Record<string, string>> = {
   },
   de: {
     GEMINI_NOT_CONFIGURED: de.agentSetup,
+    GEMINI_KEY_INVALID: "Google hat den API-Key als ungültig oder abgelaufen abgelehnt. Ersetze GEMINI_API_KEY durch einen Gemini-Key aus Google AI Studio und deploye neu. Den Key nicht teilen.",
+    GEMINI_API_DISABLED: "Die Generative Language API ist im Google-Cloud-Projekt dieses Keys deaktiviert. Aktiviere sie dort und versuche es erneut.",
+    GEMINI_MODEL_UNAVAILABLE: "Google konnte das konfigurierte Gemini-Modell für diesen API-Key nicht finden. Prüfe GEMINI_MODEL und die Modellverfügbarkeit in Google AI Studio.",
+    GEMINI_ACCESS_DENIED: "Google verweigert den Zugriff. Prüfe Key-Einschränkungen, Projektberechtigungen und die regionale Verfügbarkeit der Gemini API.",
+    GEMINI_REQUEST_REJECTED: "Google hat die Chat-Anfrage abgelehnt (HTTP 400). Anfrageparameter oder Projekt-/Free-Tier-Voraussetzungen werden nicht akzeptiert. Die Organisation sollte die Gemini-Konfiguration prüfen.",
     GEMINI_INVALID_CONFIG: "Gemini hat die Konfiguration abgelehnt. Die Organisation sollte API-Key, Modell, Region und Projektberechtigungen prüfen.",
     GEMINI_QUOTA_EXCEEDED: "Das Gemini-Anfragelimit oder Gratis-Kontingent ist erreicht. Versuche es später erneut oder prüfe das Kontingent in Google AI Studio. Deine Nachricht bleibt erhalten.",
     COACH_RATE_LIMITED: "Bitte warte zwischen Nachrichten mindestens 10 Sekunden und versuche es erneut.",

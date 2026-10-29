@@ -31,6 +31,31 @@ const responseSchema = z.object({
   })).optional(),
 });
 
+const providerErrorSchema = z.object({
+  error: z.object({
+    details: z.array(z.object({ reason: z.string().optional() })).optional(),
+  }),
+});
+
+async function providerError(response: Response): Promise<AppError> {
+  let value: unknown;
+  try {
+    value = await response.json();
+  } catch {
+    return new AppError("GEMINI_INVALID_RESPONSE", 502);
+  }
+  const parsed = providerErrorSchema.safeParse(value);
+  const reasons = parsed.success ? parsed.data.error.details?.map((detail) => detail.reason) ?? [] : [];
+  // Only return fixed application codes; provider messages can contain secrets.
+  if (reasons.some((reason) => ["API_KEY_INVALID", "API_KEY_EXPIRED"].includes(reason ?? "")) || response.status === 401) {
+    return new AppError("GEMINI_KEY_INVALID", 503);
+  }
+  if (reasons.includes("SERVICE_DISABLED")) return new AppError("GEMINI_API_DISABLED", 503);
+  if (response.status === 404) return new AppError("GEMINI_MODEL_UNAVAILABLE", 503);
+  if (response.status === 403) return new AppError("GEMINI_ACCESS_DENIED", 503);
+  return new AppError("GEMINI_REQUEST_REJECTED", 503);
+}
+
 const cooldowns = new Map<string, number>();
 export function reserveCoachRequest(sessionId: string, now = Date.now()) {
   for (const [id, expires] of cooldowns) if (expires <= now) cooldowns.delete(id);
@@ -67,7 +92,7 @@ export async function geminiReply(input: unknown, fetcher: typeof fetch = fetch)
     throw new AppError("GEMINI_UNAVAILABLE", 502);
   }
   if (response.status === 429) throw new AppError("GEMINI_QUOTA_EXCEEDED", 429);
-  if ([400, 401, 403, 404].includes(response.status)) throw new AppError("GEMINI_INVALID_CONFIG", 503);
+  if ([400, 401, 403, 404].includes(response.status)) throw await providerError(response);
   if (!response.ok) throw new AppError("GEMINI_UNAVAILABLE", 502);
   let value: unknown;
   try {

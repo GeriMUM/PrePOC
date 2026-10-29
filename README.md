@@ -154,6 +154,9 @@ Responses are limited to 800 output tokens with a 45-second provider timeout;
 truncated, blocked, malformed, and failed responses produce explicit errors.
 Failed sends preserve the input and do not enter the successful conversation.
 There are no automatic retries.
+Setup failures distinguish rejected keys, disabled API access, missing models,
+permission failures, and rejected request parameters. Only fixed error codes
+are returned or logged, never raw Google error messages or credential metadata.
 
 The endpoint requires the browser's signed pilot session and same-origin JSON.
 An in-memory per-session cooldown allows at most one attempt per 10 seconds.

@@ -117,9 +117,9 @@ test("missing and invalid configuration fail without calling Google", async () =
 
 test("quota, authentication and service failures are explicit and never retried", async () => {
   for (const [status, code] of [
-    [429, "GEMINI_QUOTA_EXCEEDED"], [400, "GEMINI_INVALID_CONFIG"],
-    [401, "GEMINI_INVALID_CONFIG"], [403, "GEMINI_INVALID_CONFIG"],
-    [404, "GEMINI_INVALID_CONFIG"], [500, "GEMINI_UNAVAILABLE"],
+    [429, "GEMINI_QUOTA_EXCEEDED"], [400, "GEMINI_REQUEST_REJECTED"],
+    [401, "GEMINI_KEY_INVALID"], [403, "GEMINI_ACCESS_DENIED"],
+    [404, "GEMINI_MODEL_UNAVAILABLE"], [500, "GEMINI_UNAVAILABLE"],
   ] as const) {
     let calls = 0;
     await assert.rejects(geminiReply(input, async () => {
@@ -130,6 +130,24 @@ test("quota, authentication and service failures are explicit and never retried"
   }
   await assert.rejects(geminiReply(input, async () => { throw new TypeError("fetch failed"); }), hasCode("GEMINI_UNAVAILABLE"));
   await assert.rejects(geminiReply(input, async () => { throw new DOMException("Timed out", "TimeoutError"); }), hasCode("GEMINI_TIMEOUT"));
+});
+
+test("Google error reasons identify setup failures without exposing raw messages or metadata", async () => {
+  for (const [reason, code] of [
+    ["API_KEY_INVALID", "GEMINI_KEY_INVALID"],
+    ["API_KEY_EXPIRED", "GEMINI_KEY_INVALID"],
+    ["SERVICE_DISABLED", "GEMINI_API_DISABLED"],
+    ["API_KEY_SERVICE_BLOCKED", "GEMINI_ACCESS_DENIED"],
+  ] as const) {
+    await assert.rejects(geminiReply(input, fetchResponse({
+      error: { message: "private-key-and-prompt", details: [{ reason, metadata: { key: "secret" } }] },
+    }, reason.startsWith("API_KEY_") && reason !== "API_KEY_SERVICE_BLOCKED" ? 400 : 403)), (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.code, code);
+      assert.doesNotMatch(JSON.stringify(error), /private-key|secret/);
+      return true;
+    });
+  }
 });
 
 test("blocked, truncated, malformed and empty model output cannot pretend to be a successful reply", async () => {
@@ -170,6 +188,8 @@ test("all Gemini errors are localized without exposing provider details", () => 
     "GEMINI_NOT_CONFIGURED", "GEMINI_INVALID_CONFIG", "GEMINI_QUOTA_EXCEEDED",
     "COACH_RATE_LIMITED", "GEMINI_TIMEOUT", "GEMINI_UNAVAILABLE",
     "GEMINI_INVALID_RESPONSE", "GEMINI_BLOCKED", "GEMINI_TRUNCATED",
+    "GEMINI_KEY_INVALID", "GEMINI_API_DISABLED", "GEMINI_MODEL_UNAVAILABLE",
+    "GEMINI_ACCESS_DENIED", "GEMINI_REQUEST_REJECTED",
   ]) for (const language of ["en", "de"] as const) {
     assert.notEqual(errorMessage(code, language), errorMessage("SERVER_ERROR", language));
   }
