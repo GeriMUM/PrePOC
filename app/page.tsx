@@ -1,4 +1,5 @@
 import { Workshop } from "../components/workshop";
+import { geminiApiKey } from "../lib/gemini-config";
 export default function Home() {
-  return <Workshop coachConfigured={Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim())} />;
+  return <Workshop coachConfigured={Boolean(geminiApiKey())} />;
 }

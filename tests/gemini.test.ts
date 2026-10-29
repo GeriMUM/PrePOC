@@ -4,14 +4,19 @@ import { coachHistory } from "../lib/coach";
 import { AppError } from "../lib/errors";
 import { chatInputSchema, geminiReply, reserveCoachRequest } from "../lib/gemini";
 import { errorMessage } from "../lib/i18n";
+import { geminiApiKey } from "../lib/gemini-config";
 
 const originalKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+const originalAlias = process.env.GEMINI_API_KEY;
 const originalModel = process.env.GEMINI_MODEL;
 beforeEach(() => {
+  delete process.env.GEMINI_API_KEY;
   process.env.GOOGLE_GENERATIVE_AI_API_KEY = "test-key-not-real";
   delete process.env.GEMINI_MODEL;
 });
 afterEach(() => {
+  if (originalAlias === undefined) delete process.env.GEMINI_API_KEY;
+  else process.env.GEMINI_API_KEY = originalAlias;
   if (originalKey === undefined) delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   else process.env.GOOGLE_GENERATIVE_AI_API_KEY = originalKey;
   if (originalModel === undefined) delete process.env.GEMINI_MODEL;
@@ -27,6 +32,22 @@ const hasCode = (code: string) => (error: unknown) => error instanceof AppError 
 const fetchResponse = (value: unknown, status = 200): typeof fetch => async () => Response.json(value, { status });
 const success = (text: string, finishReason = "STOP") => ({
   candidates: [{ finishReason, content: { parts: [{ text }] } }],
+});
+
+test("both key names work with consistent precedence for page and provider", async () => {
+  assert.equal(geminiApiKey(), "test-key-not-real");
+  process.env.GEMINI_API_KEY = "  vercel-test-key  ";
+  assert.equal(geminiApiKey(), "vercel-test-key");
+  delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  await geminiReply(input, async (_url, init) => {
+    assert.equal(new Headers(init?.headers).get("x-goog-api-key"), "vercel-test-key");
+    return Response.json(success("Which task would you improve?"));
+  });
+  process.env.GOOGLE_GENERATIVE_AI_API_KEY = "legacy-key";
+  process.env.GEMINI_API_KEY = " ";
+  assert.equal(geminiApiKey(), "legacy-key");
+  delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  assert.equal(geminiApiKey(), undefined);
 });
 
 test("Gemini request uses a server-only header, bounded generation, language, draft and conversation", async () => {

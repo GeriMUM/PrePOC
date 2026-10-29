@@ -71,7 +71,7 @@ For a local production build, set `STORAGE_DRIVER=file` and a random
    | `STORAGE_DRIVER` | `blob` |
    | `BLOB_READ_WRITE_TOKEN` | Provided by the connected private Blob store |
    | `SESSION_SECRET` | A randomly generated secret, at least 32 characters |
-   | `GOOGLE_GENERATIVE_AI_API_KEY` | Server-only Gemini API key from Google AI Studio |
+   | `GEMINI_API_KEY` | Server-only Gemini API key from Google AI Studio |
    | `GEMINI_MODEL` | `gemini-2.5-flash-lite` (default) |
 
    Generate a session secret with:
@@ -122,9 +122,11 @@ JSON files regularly according to company retention and backup requirements.
    using a project eligible for the Gemini API free tier. To avoid paid token
    usage, use a project without an active billing account; do not enable billing
    or assume a budget alert is a hard spending cap.
-2. Add `GOOGLE_GENERATIVE_AI_API_KEY=your-key` to ignored `.env.local`, or the
+2. Add `GEMINI_API_KEY=your-key` to ignored `.env.local`, or the
    server's deployment environment. Never put it in a `NEXT_PUBLIC_` variable,
    source code, or a chat message.
+   The previous name `GOOGLE_GENERATIVE_AI_API_KEY` is also supported.
+   If both are nonempty, `GEMINI_API_KEY` takes precedence.
 3. Optionally set `GEMINI_MODEL=gemini-2.5-flash-lite`. This is the default
    lightweight model. Check current availability and free quota in AI Studio.
    Any replacement model must support `thinkingConfig.thinkingBudget=0`.

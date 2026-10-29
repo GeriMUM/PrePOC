@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { coachingContext, parseCoachReply } from "./coach";
 import { AppError } from "./errors";
+import { geminiApiKey } from "./gemini-config";
 import { emptyIdea, ideaFieldsSchema } from "./model";
 
 export const chatMessageSchema = z.object({
@@ -40,7 +41,7 @@ export function reserveCoachRequest(sessionId: string, now = Date.now()) {
 export async function geminiReply(input: unknown, fetcher: typeof fetch = fetch) {
   const parsed = chatInputSchema.safeParse(input);
   if (!parsed.success) throw new AppError("INVALID_INPUT");
-  const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim();
+  const apiKey = geminiApiKey();
   if (!apiKey) throw new AppError("GEMINI_NOT_CONFIGURED", 503);
   const model = process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash-lite";
   if (!/^gemini-[a-z0-9.-]+$/.test(model)) throw new AppError("GEMINI_INVALID_CONFIG", 503);
