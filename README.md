@@ -56,6 +56,11 @@ For a local production build, set `STORAGE_DRIVER=file` and a random
 
 1. Push this application to your GitHub repository and import it into Vercel.
    Use the detected **Next.js** preset and Node.js 22 or newer.
+   The repository's `vercel.json` explicitly selects Next.js and automatic
+   output detection. Leave the Output Directory override disabled; do not use
+   `public` or configure this application as a static website. If deployment
+   reports `STATIC_BUILD_NO_OUT_DIR`, check these project settings and redeploy
+   the latest commit.
 2. In Vercel Storage, create a **private** Blob store and connect it to the
    project. Ensure `BLOB_READ_WRITE_TOKEN` is available to the deployment.
    A public store is not suitable for drafts.
