@@ -11,6 +11,15 @@ test("a plain reply stays conversational; a structured summary is separated for 
   });
 });
 
+test("a summary labelled as json followed by idea-summary is still recognised", () => {
+  for (const fence of ["```json\nidea-summary\n", "```json idea-summary\n", "```idea-summary\r\n"]) {
+    assert.deepEqual(parseCoachReply(`Next question?\n\n${fence}{"title":"Briefing","problem":"Tracking takes time"}\n\`\`\``), {
+      text: "Next question?",
+      summary: { title: "Briefing", problem: "Tracking takes time" },
+    });
+  }
+});
+
 test("invalid or oversized agent output cannot overwrite the idea summary or its ownership metadata", () => {
   for (const value of [
     '{"ownerId":"someone-else"}', '{"author":"Impersonated"}', '{"problem":123}',
