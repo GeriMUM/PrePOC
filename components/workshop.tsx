@@ -6,7 +6,7 @@ import type { IdeaSummary } from "../lib/coach";
 import { errorMessage } from "../lib/i18n";
 import { Coach } from "./coach";
 import { Modal } from "./modal";
-import { errorCode, request, usePlatform } from "./platform";
+import { authorKey, errorCode, request, usePlatform } from "./platform";
 
 export function Workshop({ coachConfigured }: { coachConfigured: boolean }) {
   const { language, t } = usePlatform();
@@ -29,7 +29,11 @@ export function Workshop({ coachConfigured }: { coachConfigured: boolean }) {
   const load = useCallback(() =>
     request("/api/session")
       .then(() => request<Idea[]>("/api/ideas?mine=1"))
-      .then((ideas) => { setIdeas(ideas); setError(""); setReady(true); })
+      .then((ideas) => {
+        setIdeas(ideas); setError(""); setReady(true);
+        const author = localStorage.getItem(authorKey);
+        if (author) setFields((previous) => previous.author ? previous : { ...previous, author });
+      })
       .catch((error: unknown) => setError(errorCode(error))), []);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -65,6 +69,7 @@ export function Workshop({ coachConfigured }: { coachConfigured: boolean }) {
         }),
       });
       setCurrent(saved); setFields(saved);
+      if (saved.author) localStorage.setItem(authorKey, saved.author);
       setIdeas((previous) => [saved, ...previous.filter((idea) => idea.id !== saved.id)]);
       setDirty(false); setNotice(publish ? "publishedNotice" : "saved"); setConfirm(false);
     } catch (error) { setError(errorCode(error)); setConfirm(false); }
@@ -83,16 +88,15 @@ export function Workshop({ coachConfigured }: { coachConfigured: boolean }) {
     </label>;
 
   return <div className="page-shell">
-    <section className="hero workshop-hero">
-      <div><p className="eyebrow">{t.eyebrow}</p><h1>{t.hero}</h1><p className="hero-description">{t.conversationIntro}</p></div>
-      <div className="hero-stamp" aria-hidden="true"><span>IDEAS<br />BREWING</span><b>✳</b><small>vol. 01 — 02</small></div>
+    <section className="hero">
+      <h1>{t.hero}</h1><p className="hero-description">{t.conversationIntro}</p>
+      <p className="hero-note">{t.warning}</p>
     </section>
-    <p className="pilot-notice"><span aria-hidden="true">ⓘ</span> {t.warning}</p>
     <div className="draft-bar">
       <label><span>{t.drafts}</span><select aria-label={t.selectDraft} value={current?.id ?? ""} disabled={!ready || busy || coachActive} onChange={(event) => open(event.target.value)}>
         <option value="">{t.newIdea}</option>{ideas.map((idea) => <option key={idea.id} value={idea.id}>{idea.title || t.untitled} · {idea.status === "draft" ? t.draft : t.published}</option>)}
       </select></label>
-      <button className="text-button" onClick={() => open("")} disabled={busy || coachActive}>+ {t.newIdea}</button>
+      <button className="button secondary small" onClick={() => open("")} disabled={busy || coachActive}>+ {t.newIdea}</button>
     </div>
     <div className="conversation-layout">
       <Coach key={conversationKey} configured={coachConfigured} fields={fields} disabled={busy || readonly || !ready}
@@ -110,7 +114,7 @@ export function Workshop({ coachConfigured }: { coachConfigured: boolean }) {
             </div>
           </div>
           <div className="summary-fields">
-            {prompt("problem", 3000)}
+            {prompt("problem", 3000, 4)}
           </div>
         </fieldset>
         <div className="save-feedback" ref={feedback}>
@@ -118,15 +122,15 @@ export function Workshop({ coachConfigured }: { coachConfigured: boolean }) {
           {error && <div role="alert" className="alert error">{errorMessage(error, language)}
             {!ready && <button className="text-button" onClick={load}>{t.retry}</button>}
           </div>}
-          {notice && <p role="status" className="alert success">{t[notice]} {notice === "publishedNotice" && <a href="/ideas">{t.gallery} ↗</a>}</p>}
+          {notice && <p role="status" className="alert success">{t[notice]} {notice === "publishedNotice" && <a href="/ideas">{t.gallery} →</a>}</p>}
         </div>
         <div className="editor-actions">
-          {readonly ? <p>{t.readonly} <a href="/ideas">{t.gallery} ↗</a></p> : <>
+          {readonly ? <p>{t.readonly} <a href="/ideas">{t.gallery} →</a></p> : <>
             <button className="button secondary" disabled={busy || !ready} onClick={() => save(false)}>{busy ? t.saving : t.save}</button>
             <button className="button primary" disabled={busy || !ready || coachActive} onClick={() => {
               if (!publishable(fields)) { setError("INCOMPLETE_IDEA"); return; }
               setConfirm(true);
-            }}>{t.publish} <span aria-hidden="true">↗</span></button>
+            }}>{t.publish}</button>
           </>}
         </div>
         {!readonly && <p className="publish-help">{t.publishRequirements}</p>}

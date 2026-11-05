@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 export const events = [
-  { id: "coffee-1", name: "copilot&coffe vol 1" },
-  { id: "coffee-2", name: "copilot & coffe vol 2" },
+  { id: "coffee-1", name: "copilot & coffee vol. 1" },
+  { id: "coffee-2", name: "copilot & coffee vol. 2" },
 ] as const;
 
 export const eventSchema = z.enum(["coffee-1", "coffee-2"]);

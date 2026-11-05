@@ -63,10 +63,10 @@ export function Coach({ fields, onApply, disabled, onActiveChange, configured }:
   }
 
   return <section className="coach-panel conversation-panel" aria-label={t.coach}>
-    <div className="coach-head"><span className="spark-icon" aria-hidden="true">✳</span><div><h2>{t.coach}</h2><p>{t.conversationSubtitle}</p></div><span className="pill">{t.coachBadge}</span></div>
+    <div className="coach-head"><span className="coach-avatar" aria-hidden="true">AI</span><div><h2>{t.coach}</h2><p>{t.conversationSubtitle}</p></div><span className="pill">{t.coachBadge}</span></div>
     <div className="chat-log" role="log" aria-label={t.chatHistory} aria-live="polite">
       {!messages.length && <div className="chat-welcome"><span className="eyebrow">{t.startHere}</span><h3>{t.coachWelcome}</h3><p>{t.chatWelcome}</p>
-        <button className="starter-chip" disabled={disabled || busy || !configured} onClick={() => setText(t.timeBookingStarter)}>{t.timeBookingStarter} ↗</button></div>}
+        <button className="starter-chip" disabled={disabled || busy || !configured} onClick={() => setText(t.timeBookingStarter)}>{t.timeBookingStarter}</button></div>}
       {messages.map((message) => <article key={message.id} className={`chat-message ${message.role === "model" ? "bot" : "user"}`}>
         <small>{message.role === "model" ? t.coach : t.you}</small>
         {message.text && <p>{message.text}</p>}
@@ -85,8 +85,12 @@ export function Coach({ fields, onApply, disabled, onActiveChange, configured }:
       {error && <p role="alert" className="alert error">{errorMessage(error, language)}</p>}
       <form onSubmit={send}><label className="sr-only" htmlFor="coach-message">{t.chatMessage}</label>
         <textarea id="coach-message" value={text} onChange={(event) => setText(event.target.value)} maxLength={4000} rows={3}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); }
+          }}
           placeholder={t.chatPlaceholder} disabled={disabled || busy || !configured} />
-        <button className="button primary" disabled={disabled || busy || !configured || !text.trim()}>{t.sendMessage} ↑</button>
+        <div className="compose-row"><span className="microcopy">{t.enterHint}</span>
+          <button className="button primary" disabled={disabled || busy || !configured || !text.trim()}>{t.sendMessage}</button></div>
       </form>
       <p className="microcopy">{t.chatPrivacy}</p>
       {messages.length > 0 && <p className="microcopy">{t.chatNotSaved}</p>}

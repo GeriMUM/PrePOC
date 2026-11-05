@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { events, type Comment, type Idea } from "../lib/model";
 import { errorMessage } from "../lib/i18n";
-import { errorCode, request, usePlatform } from "./platform";
+import { authorKey, errorCode, request, usePlatform } from "./platform";
 import { Modal } from "./modal";
 
 export function Gallery() {
@@ -28,23 +28,22 @@ export function Gallery() {
       <div><p className="eyebrow">{t.galleryEyebrow}</p><h1>{t.galleryTitle}</h1><p className="hero-description">{t.galleryIntro}</p></div>
       <a className="button primary" href="/">+ {t.newIdea}</a>
     </section>
-    <p className="pilot-notice"><span aria-hidden="true">ⓘ</span> {t.warning}</p>
     <div className="gallery-toolbar">
-      <label className="search-field"><span className="sr-only">{t.search}</span><span aria-hidden="true">⌕</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t.searchPlaceholder} /></label>
+      <label className="search-field"><span className="sr-only">{t.search}</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t.searchPlaceholder} /></label>
       <label><span className="sr-only">{t.event}</span><select value={eventId} onChange={(event) => setEventId(event.target.value)}><option value="">{t.allEvents}</option>{events.map((event) => <option key={event.id} value={event.id}>{event.name}</option>)}</select></label>
-      <button className="text-button" onClick={load}>{t.refresh} ↻</button>
+      <button className="button secondary" onClick={load}>{t.refresh}</button>
     </div>
-    <div className="gallery-count"><span>{String(visible.length).padStart(2, "0")} {t.ideaCount}</span><span className="small-rule" /></div>
+    <p className="gallery-count">{visible.length} {t.ideaCount}</p>
     {error && <div role="alert" className="alert error">{errorMessage(error, language)} <button className="text-button" onClick={load}>{t.retry}</button></div>}
-    {!ready && !error && <p role="status">{t.loading}</p>}
-    {ready && !visible.length && <div className="empty-state"><span aria-hidden="true">✳</span><h2>{ideas.length ? t.noResults : t.emptyTitle}</h2><p>{ideas.length ? t.noResultsBody : t.emptyBody}</p>{!ideas.length && <a className="button primary" href="/">{t.workshop} ↗</a>}</div>}
-    <div className="idea-grid">{visible.map((idea, index) =>
-      <article className={`idea-card tone-${index % 3}`} key={idea.id}>
-        <div className="card-top"><span className="event-tag">{events.find((event) => event.id === idea.eventId)?.name}</span><span className="card-spark" aria-hidden="true">{["✳", "✦", "↗"][index % 3]}</span></div>
+    {!ready && !error && <p role="status" className="microcopy">{t.loading}</p>}
+    {ready && !visible.length && <div className="empty-state"><h2>{ideas.length ? t.noResults : t.emptyTitle}</h2><p>{ideas.length ? t.noResultsBody : t.emptyBody}</p>{!ideas.length && <a className="button primary" href="/">{t.workshop}</a>}</div>}
+    <div className="idea-grid">{visible.map((idea) =>
+      <button type="button" className="idea-card" key={idea.id} onClick={() => setSelected(idea)} aria-label={`${t.readIdea}: ${idea.title}`}>
+        <span className="event-tag">{events.find((event) => event.id === idea.eventId)?.name}</span>
         <h2>{idea.title}</h2><p className="card-problem">{idea.problem}</p>
-        <div className="card-bottom"><span className="avatar" aria-hidden="true">{idea.author.slice(0, 1).toLocaleUpperCase(language)}</span><div><strong>{idea.author}</strong><small>{new Date(idea.createdAt).toLocaleDateString(language, { day: "numeric", month: "short" })}</small></div>
-          <button onClick={() => setSelected(idea)} className="round-button" aria-label={`${t.readIdea}: ${idea.title}`}>↗</button></div>
-      </article>
+        <span className="card-bottom"><span className="avatar" aria-hidden="true">{idea.author.slice(0, 1).toLocaleUpperCase(language)}</span><span><strong>{idea.author}</strong><small>{new Date(idea.createdAt).toLocaleDateString(language, { day: "numeric", month: "short", year: "numeric" })}</small></span>
+          <span className="card-arrow" aria-hidden="true">→</span></span>
+      </button>
     )}</div>
     {selected && <IdeaDetail key={selected.id} idea={selected} onClose={() => setSelected(null)} />}
   </div>;
@@ -55,7 +54,7 @@ function IdeaDetail({ idea, onClose }: { idea: Idea; onClose: () => void }) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
-  const [author, setAuthor] = useState("");
+  const [author, setAuthor] = useState(() => localStorage.getItem(authorKey) ?? "");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [posted, setPosted] = useState(false);
@@ -71,6 +70,7 @@ function IdeaDetail({ idea, onClose }: { idea: Idea; onClose: () => void }) {
     try {
       const comment = await request<Comment>(`/api/ideas/${idea.id}/comments`, { method: "POST", body: JSON.stringify({ author, text }) });
       setComments((previous) => [...previous, comment]); setText(""); setPosted(true);
+      localStorage.setItem(authorKey, comment.author);
     } catch (error) { setError(errorCode(error)); }
     finally { setBusy(false); }
   }
@@ -87,7 +87,7 @@ function IdeaDetail({ idea, onClose }: { idea: Idea; onClose: () => void }) {
         <fieldset disabled={busy || !ready}><legend className="sr-only">{t.addComment}</legend>
           <label className="field"><span>{t.author}</span><input required value={author} maxLength={80} onChange={(event) => setAuthor(event.target.value)} placeholder={t.authorPlaceholder} /></label>
           <label className="field"><span>{t.commentLabel}</span><textarea required value={text} maxLength={1500} rows={3} onChange={(event) => { setText(event.target.value); setPosted(false); }} placeholder={t.commentPlaceholder} /><small>{text.length} / 1500</small></label>
-          <button className="button primary" disabled={!author.trim() || !text.trim()}>{busy ? t.saving : t.addComment} ↗</button>
+          <button className="button primary" disabled={!author.trim() || !text.trim()}>{busy ? t.saving : t.addComment}</button>
         </fieldset>
       </form>
     </section>
