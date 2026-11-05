@@ -90,7 +90,6 @@ export function Workshop({ coachConfigured }: { coachConfigured: boolean }) {
   return <div className="page-shell">
     <section className="hero">
       <h1>{t.hero}</h1><p className="hero-description">{t.conversationIntro}</p>
-      <p className="hero-note">{t.warning}</p>
     </section>
     <div className="draft-bar">
       <label><span>{t.drafts}</span><select aria-label={t.selectDraft} value={current?.id ?? ""} disabled={!ready || busy || coachActive} onChange={(event) => open(event.target.value)}>
@@ -133,7 +132,6 @@ export function Workshop({ coachConfigured }: { coachConfigured: boolean }) {
             }}>{t.publish}</button>
           </>}
         </div>
-        {!readonly && <p className="publish-help">{t.publishRequirements}</p>}
       </section>
     </div>
     {confirm && <Modal title={t.publishTitle} closeLabel={t.cancel} onClose={() => { if (!busy) setConfirm(false); }}>

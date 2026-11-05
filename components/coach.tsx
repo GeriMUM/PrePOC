@@ -92,8 +92,6 @@ export function Coach({ fields, onApply, disabled, onActiveChange, configured }:
         <div className="compose-row"><span className="microcopy">{t.enterHint}</span>
           <button className="button primary" disabled={disabled || busy || !configured || !text.trim()}>{t.sendMessage}</button></div>
       </form>
-      <p className="microcopy">{t.chatPrivacy}</p>
-      {messages.length > 0 && <p className="microcopy">{t.chatNotSaved}</p>}
     </div>
   </section>;
 }

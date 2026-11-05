@@ -48,7 +48,6 @@ export function Platform({ children, initialLanguage }: { children: ReactNode; i
       </div>
     </header>
     <main>{children}</main>
-    <footer className="footer"><div className="footer-inner"><span>{t.footer}</span><span>{t.demo}</span><span className="footer-brand">mann&amp;mouse · we live it</span></div></footer>
   </Context.Provider>;
 }
 
