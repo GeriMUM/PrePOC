@@ -15,6 +15,7 @@ export function Gallery({ initialId = "" }: { initialId?: string }) {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [eventId, setEventId] = useState("");
+  const [sort, setSort] = useState<"newest" | "popular">("newest");
   const [selected, setSelected] = useState<Idea | null>(null);
   const [missing, setMissing] = useState(false);
   const pending = useRef(initialId);
@@ -51,8 +52,13 @@ export function Gallery({ initialId = "" }: { initialId?: string }) {
     if (pushed.current) { pushed.current = false; history.back(); }
     else if (location.pathname !== "/ideas") history.replaceState(null, "", "/ideas");
   }
+  function update(idea: Idea) {
+    ideasRef.current = ideasRef.current.map((existing) => existing.id === idea.id ? idea : existing);
+    setIdeas(ideasRef.current); setSelected(idea);
+  }
   const visible = ideas.filter((idea) => (!eventId || idea.eventId === eventId) &&
-    `${idea.title} ${idea.author} ${idea.problem} ${idea.solution}`.toLocaleLowerCase(language).includes(query.trim().toLocaleLowerCase(language)));
+    `${idea.title} ${idea.author} ${idea.problem} ${idea.solution}`.toLocaleLowerCase(language).includes(query.trim().toLocaleLowerCase(language)))
+    .sort((a, b) => sort === "popular" ? b.likes - a.likes || b.updatedAt.localeCompare(a.updatedAt) : 0);
 
   return <div className="page-shell gallery-page">
     <section className="hero gallery-hero">
@@ -62,6 +68,8 @@ export function Gallery({ initialId = "" }: { initialId?: string }) {
     <div className="gallery-toolbar">
       <label className="search-field"><span className="sr-only">{t.search}</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t.searchPlaceholder} /></label>
       <label><span className="sr-only">{t.event}</span><select value={eventId} onChange={(event) => setEventId(event.target.value)}><option value="">{t.allEvents}</option>{events.map((event) => <option key={event.id} value={event.id}>{event.name}</option>)}</select></label>
+      <label><span className="sr-only">{t.sortLabel}</span><select value={sort} onChange={(event) => setSort(event.target.value === "popular" ? "popular" : "newest")}>
+        <option value="newest">{t.sortNewest}</option><option value="popular">{t.sortPopular}</option></select></label>
       <button className="button secondary" onClick={load}>{t.refresh}</button>
     </div>
     <p className="gallery-count">{visible.length} {visible.length === 1 ? t.ideaCountOne : t.ideaCount}</p>
@@ -71,17 +79,18 @@ export function Gallery({ initialId = "" }: { initialId?: string }) {
     {ready && !visible.length && <div className="empty-state"><h2>{ideas.length ? t.noResults : t.emptyTitle}</h2><p>{ideas.length ? t.noResultsBody : t.emptyBody}</p>{!ideas.length && <a className="button primary" href="/">{t.workshop}</a>}</div>}
     <div className="idea-grid">{visible.map((idea) =>
       <button type="button" className="idea-card" key={idea.id} onClick={() => open(idea)} aria-label={`${t.readIdea}: ${idea.title}`}>
-        <span className="event-tag">{events.find((event) => event.id === idea.eventId)?.name}</span>
+        <span className="card-tags"><span className="event-tag">{events.find((event) => event.id === idea.eventId)?.name}</span>{idea.mine && <span className="mine-tag">{t.mine}</span>}</span>
         <h2>{idea.title}</h2><p className="card-problem">{idea.problem}</p>
         <span className="card-bottom"><span className="avatar" aria-hidden="true">{idea.author.slice(0, 1).toLocaleUpperCase(language)}</span><span><strong>{idea.author}</strong><small>{formatDate(idea.createdAt, language)}</small></span>
+          <span className={`card-likes ${idea.liked ? "active" : ""}`} aria-label={`${idea.likes} ${t.likes}`}>👍 {idea.likes}</span>
           <span className="card-arrow" aria-hidden="true">→</span></span>
       </button>
     )}</div>
-    {selected && <IdeaDetail key={selected.id} idea={selected} onClose={close} />}
+    {selected && <IdeaDetail key={selected.id} idea={selected} onClose={close} onChange={update} />}
   </div>;
 }
 
-function IdeaDetail({ idea, onClose }: { idea: Idea; onClose: () => void }) {
+function IdeaDetail({ idea, onClose, onChange }: { idea: Idea; onClose: () => void; onChange: (idea: Idea) => void }) {
   const { language, t } = usePlatform();
   const [comments, setComments] = useState<Comment[]>([]);
   const [ready, setReady] = useState(false);
@@ -90,6 +99,8 @@ function IdeaDetail({ idea, onClose }: { idea: Idea; onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [posted, setPosted] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [likeBusy, setLikeBusy] = useState(false);
+  const [likeError, setLikeError] = useState("");
   const load = useCallback(() =>
     request<Comment[]>(`/api/ideas/${idea.id}/comments`)
       .then((comments) => { setComments(comments); setError(""); setReady(true); })
@@ -104,6 +115,13 @@ function IdeaDetail({ idea, onClose }: { idea: Idea; onClose: () => void }) {
     } catch (error) { setError(errorCode(error)); }
     finally { setBusy(false); }
   }
+  async function toggleLike() {
+    setLikeBusy(true); setLikeError("");
+    try {
+      onChange(await request<Idea>(`/api/ideas/${idea.id}/like`, { method: "POST", body: JSON.stringify({ like: !idea.liked }) }));
+    } catch (error) { setLikeError(errorCode(error)); }
+    finally { setLikeBusy(false); }
+  }
   async function copyLink() {
     const url = `${location.origin}/ideas/${idea.id}`;
     try { await navigator.clipboard.writeText(url); setCopied(true); }
@@ -113,6 +131,13 @@ function IdeaDetail({ idea, onClose }: { idea: Idea; onClose: () => void }) {
     <div className="detail-meta"><span className="event-tag">{events.find((event) => event.id === idea.eventId)?.name}</span><span>{t.by} {idea.author}</span>
       <button type="button" className="text-button copy-link" onClick={copyLink}>{copied ? `✓ ${t.linkCopied}` : `🔗 ${t.copyLink}`}</button></div>
     <div className="idea-detail">{(["problem", "audience", "solution", "approach", "impact"] as const).filter((key) => idea[key].trim()).map((key) => <section key={key}><h3>{t[`${key}Heading`]}</h3><p>{idea[key]}</p></section>)}</div>
+    <section className="like-section">
+      {idea.mine ? <span className="like-count">👍 {idea.likes} {t.likes}</span> :
+        <button type="button" className={`button ${idea.liked ? "primary" : "secondary"}`} aria-pressed={idea.liked} disabled={likeBusy} onClick={toggleLike}>
+          👍 {t.like} · {idea.likes}</button>}
+      <span className="microcopy">{t.likesAnonymous}</span>
+      {likeError && <div role="alert" className="alert error">{errorMessage(likeError, language)}</div>}
+    </section>
     <section className="comments-section"><h3>{t.comments} <span>({comments.length})</span></h3>
       {!ready && !error && <p role="status">{t.loading}</p>}
       {ready && !comments.length && <p className="microcopy">{t.noComments}</p>}

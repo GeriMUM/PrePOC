@@ -124,6 +124,38 @@ test("comments are separate immutable files, carry the signed-in author, and are
   } finally { await cleanup(); }
 });
 
+test("likes are anonymous, one per signed-in user, only on published ideas, never by the owner", async () => {
+  const { store, ideas, cleanup } = await setup();
+  try {
+    const draft = await ideas.save(input, owner);
+    await assert.rejects(ideas.like(draft.id, { like: true }, other), hasCode("NOT_FOUND"));
+    const published = await ideas.save({ ...input, publish: true }, owner);
+    assert.deepEqual([published.likes, published.liked, published.mine], [0, false, true]);
+    await assert.rejects(ideas.like(published.id, { like: true }, owner), hasCode("OWN_IDEA"));
+    await assert.rejects(ideas.like(published.id, { like: true, name: "Boss" }, other), hasCode("INVALID_INPUT"));
+
+    const liked = await ideas.like(published.id, { like: true }, other);
+    assert.deepEqual([liked.likes, liked.liked, liked.mine], [1, true, false]);
+    assert.equal((await ideas.like(published.id, { like: true }, other)).likes, 1);
+    // Browsers get only a number: no names or account IDs of who liked.
+    assert.ok(!JSON.stringify(liked).includes(other.id) && !JSON.stringify(liked).includes(other.name));
+    const stored = JSON.parse((await store.read(`ideas/${published.id}.json`))?.text ?? "{}");
+    assert.deepEqual(stored.likes, [other.id]);
+    assert.equal(stored.updatedAt, published.updatedAt);
+
+    const viewers = Array.from({ length: 4 }, (_, index) => ({ id: randomUUID(), name: `Colleague ${index}` }));
+    await Promise.all(viewers.map((viewer) => ideas.like(published.id, { like: true }, viewer)));
+    const [listed] = await ideas.all(undefined, other.id);
+    assert.equal(listed.likes, 5);
+    assert.equal(listed.liked, true);
+    assert.equal((await ideas.all(undefined, owner.id))[0].liked, false);
+    assert.equal("ownerId" in listed, false);
+
+    const unliked = await ideas.like(published.id, { like: false }, other);
+    assert.deepEqual([unliked.likes, unliked.liked], [4, false]);
+  } finally { await cleanup(); }
+});
+
 test("storage rejects path traversal and create collisions", async () => {
   const { store, cleanup } = await setup();
   try {

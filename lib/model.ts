@@ -25,12 +25,16 @@ export const saveIdeaSchema = ideaFieldsSchema.omit({ author: true }).extend({
   publish: z.boolean(),
 }).strict();
 
+export const likeInputSchema = z.object({ like: z.boolean() }).strict();
+
 export const ideaRecordSchema = ideaFieldsSchema.extend({
   id: idSchema,
   ownerId: z.string().min(1).max(128),
   status: z.enum(["draft", "published"]),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
+  // Account IDs only, so each person likes once; never sent to browsers.
+  likes: z.array(z.string().min(1).max(128)).max(5000).default([]),
 });
 
 export const commentInputSchema = z.object({
@@ -50,7 +54,8 @@ export type SaveIdea = z.infer<typeof saveIdeaSchema>;
 export type IdeaRecord = z.infer<typeof ideaRecordSchema>;
 export type CommentRecord = z.infer<typeof commentRecordSchema>;
 export type Comment = Omit<CommentRecord, "authorId">;
-export type Idea = Omit<IdeaRecord, "ownerId"> & { version: string };
+/** What browsers see: an anonymous like count, plus whether the viewer liked or owns the idea. */
+export type Idea = Omit<IdeaRecord, "ownerId" | "likes"> & { version: string; likes: number; liked: boolean; mine: boolean };
 export type Language = "en" | "de";
 
 export function publishable(fields: IdeaFields): boolean {

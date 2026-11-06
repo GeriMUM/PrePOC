@@ -195,6 +195,16 @@ details[open] > summary::before { content: "\2212"; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
 .detail-meta { display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--muted); margin-bottom: 8px; }
 .detail-meta .event-tag { margin: 0; }
+.card-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.card-tags .event-tag { margin: 0; }
+.mine-tag { font-size: 12px; font-weight: 600; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
+.card-likes { margin-left: auto; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.card-likes.active { color: var(--orange-dark); }
+.card-likes + .card-arrow { margin-left: 0; }
+.like-section { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 16px 0; margin-bottom: 8px; }
+.like-section .microcopy { margin: 0; }
+.like-count { font-size: 15px; font-weight: 600; }
+.like-section .alert { flex-basis: 100%; margin: 0; }
 .detail-meta .copy-link { margin-left: auto; white-space: nowrap; }
 .idea-detail section { padding: 16px 0; border-top: 1px solid var(--line); }
 .idea-detail h3 { font-size: 14px; color: var(--muted); margin-bottom: 6px; }
