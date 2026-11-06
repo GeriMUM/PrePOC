@@ -52,7 +52,11 @@ a { color: inherit; text-underline-offset: 3px; }
 .header nav a[aria-current="page"] { color: var(--ink); box-shadow: inset 0 -2px 0 var(--orange); border-radius: 0; }
 .account { display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--muted); min-width: 0; }
 .account span { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.field input[readonly] { background: var(--bg); color: var(--muted); cursor: default; }
+.event-field { max-width: 360px; }
+.publish-as { margin-bottom: 8px; }
+.view-switch { display: none; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 16px; background: var(--white); }
+.view-switch button { flex: 1; border: 0; background: none; padding: 10px; font-size: 15px; font-weight: 600; color: var(--muted); }
+.view-switch button[aria-pressed="true"] { background: var(--ink); color: #fff; }
 .signed-out .alert { margin-bottom: 20px; max-width: 640px; }
 .language-control { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .language-control button { border: 0; background: none; padding: 6px 10px; font-size: 13px; font-weight: 600; color: var(--muted); }
@@ -142,7 +146,6 @@ select { width: auto; padding-right: 32px; }
 .field small { display: block; text-align: right; font-size: 12px; color: var(--faint); margin-top: 4px; }
 .field select { width: 100%; }
 .title-field input { font-size: 18px; font-weight: 600; }
-.two-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 details { border-top: 1px solid var(--line); }
 details > summary { cursor: pointer; padding: 14px 0; font-size: 14px; font-weight: 600; list-style: none; display: flex; align-items: center; gap: 8px; }
 details > summary::-webkit-details-marker { display: none; }
@@ -207,17 +210,17 @@ details[open] > summary::before { content: "\2212"; }
 @media (max-width: 1000px) {
   .conversation-layout { grid-template-columns: 1fr; }
   .conversation-panel { position: static; }
+  .view-switch { display: flex; }
+  .show-coach .summary-panel, .show-idea .coach-panel { display: none; }
   .idea-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 720px) {
-  .header-inner { padding: 12px 18px; gap: 12px; flex-wrap: wrap; }
-  .brand small { display: none; }
-  .header nav { order: 3; width: 100%; margin: 0; }
-  .header nav a { flex: 1; text-align: center; }
-  .language-control { margin-left: auto; }
-  .account { margin-left: auto; }
-  .account span { max-width: 140px; }
-  .account + .language-control { margin-left: 0; }
+  .header-inner { padding: 10px 16px; gap: 10px; }
+  .brand > span, .account span { display: none; }
+  .logo { width: 36px; height: 36px; }
+  .header nav a { padding: 8px; font-size: 14px; }
+  .account .text-button { font-size: 13px; }
+  .language-control button { padding: 6px 8px; }
   .page-shell { padding: 0 18px 40px; }
   .hero { padding: 32px 0 20px; }
   .hero-description { font-size: 16px; }
@@ -228,7 +231,6 @@ details[open] > summary::before { content: "\2212"; }
   .draft-bar label { flex: 1 1 100%; flex-direction: column; align-items: stretch; gap: 4px; }
   .draft-bar select { max-width: none; width: 100%; }
   .idea-grid { grid-template-columns: 1fr; }
-  .two-fields { grid-template-columns: 1fr; gap: 0; }
   .basics, .summary-fields, .summary-heading, .save-feedback { padding-left: 18px; padding-right: 18px; }
   .editor-top { padding: 14px 18px 0; }
   .editor-actions { padding: 14px 18px; flex-wrap: wrap; }

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { events, type Comment, type Idea } from "../lib/model";
 import { errorMessage } from "../lib/i18n";
-import { errorCode, request, usePlatform } from "./platform";
+import { errorCode, formatDate, request, usePlatform } from "./platform";
 import { Modal } from "./modal";
 
 export function Gallery() {
@@ -33,7 +33,7 @@ export function Gallery() {
       <label><span className="sr-only">{t.event}</span><select value={eventId} onChange={(event) => setEventId(event.target.value)}><option value="">{t.allEvents}</option>{events.map((event) => <option key={event.id} value={event.id}>{event.name}</option>)}</select></label>
       <button className="button secondary" onClick={load}>{t.refresh}</button>
     </div>
-    <p className="gallery-count">{visible.length} {t.ideaCount}</p>
+    <p className="gallery-count">{visible.length} {visible.length === 1 ? t.ideaCountOne : t.ideaCount}</p>
     {error && <div role="alert" className="alert error">{errorMessage(error, language)} <button className="text-button" onClick={load}>{t.retry}</button></div>}
     {!ready && !error && <p role="status" className="microcopy">{t.loading}</p>}
     {ready && !visible.length && <div className="empty-state"><h2>{ideas.length ? t.noResults : t.emptyTitle}</h2><p>{ideas.length ? t.noResultsBody : t.emptyBody}</p>{!ideas.length && <a className="button primary" href="/">{t.workshop}</a>}</div>}
@@ -41,7 +41,7 @@ export function Gallery() {
       <button type="button" className="idea-card" key={idea.id} onClick={() => setSelected(idea)} aria-label={`${t.readIdea}: ${idea.title}`}>
         <span className="event-tag">{events.find((event) => event.id === idea.eventId)?.name}</span>
         <h2>{idea.title}</h2><p className="card-problem">{idea.problem}</p>
-        <span className="card-bottom"><span className="avatar" aria-hidden="true">{idea.author.slice(0, 1).toLocaleUpperCase(language)}</span><span><strong>{idea.author}</strong><small>{new Date(idea.createdAt).toLocaleDateString(language, { day: "numeric", month: "short", year: "numeric" })}</small></span>
+        <span className="card-bottom"><span className="avatar" aria-hidden="true">{idea.author.slice(0, 1).toLocaleUpperCase(language)}</span><span><strong>{idea.author}</strong><small>{formatDate(idea.createdAt, language)}</small></span>
           <span className="card-arrow" aria-hidden="true">→</span></span>
       </button>
     )}</div>
@@ -73,11 +73,11 @@ function IdeaDetail({ idea, onClose }: { idea: Idea; onClose: () => void }) {
   }
   return <Modal title={idea.title} closeLabel={t.close} onClose={onClose} wide>
     <div className="detail-meta"><span className="event-tag">{events.find((event) => event.id === idea.eventId)?.name}</span><span>{t.by} {idea.author}</span></div>
-    <div className="idea-detail">{(["problem", "audience", "solution", "approach", "impact"] as const).filter((key) => idea[key].trim()).map((key) => <section key={key}><h3>{t[key]}</h3><p>{idea[key]}</p></section>)}</div>
+    <div className="idea-detail">{(["problem", "audience", "solution", "approach", "impact"] as const).filter((key) => idea[key].trim()).map((key) => <section key={key}><h3>{t[`${key}Heading`]}</h3><p>{idea[key]}</p></section>)}</div>
     <section className="comments-section"><h3>{t.comments} <span>({comments.length})</span></h3>
       {!ready && !error && <p role="status">{t.loading}</p>}
       {ready && !comments.length && <p className="microcopy">{t.noComments}</p>}
-      <ol className="comments">{comments.map((comment) => <li key={comment.id}><div><strong>{comment.author}</strong><time dateTime={comment.createdAt}>{new Date(comment.createdAt).toLocaleDateString(language)}</time></div><p>{comment.text}</p></li>)}</ol>
+      <ol className="comments">{comments.map((comment) => <li key={comment.id}><div><strong>{comment.author}</strong><time dateTime={comment.createdAt}>{formatDate(comment.createdAt, language)}</time></div><p>{comment.text}</p></li>)}</ol>
       {error && <div role="alert" className="alert error">{errorMessage(error, language)}{!ready && <button className="text-button" onClick={load}>{t.retry}</button>}</div>}
       {posted && <p className="alert success" role="status">{t.commentPosted}</p>}
       <form onSubmit={submit}>

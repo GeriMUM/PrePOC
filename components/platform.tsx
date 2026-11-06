@@ -8,6 +8,10 @@ import type { Language } from "../lib/model";
 const Context = createContext<{ language: Language; t: Messages }>({ language: "en", t: messages.en });
 export function usePlatform() { return useContext(Context); }
 
+export function formatDate(iso: string, language: Language) {
+  return new Date(iso).toLocaleDateString(language, { day: "numeric", month: "short", year: "numeric" });
+}
+
 export function Logo({ size = 44 }: { size?: number }) {
   return <svg className="logo" width={size} height={size} viewBox="0 0 100 100" aria-hidden="true">
     <rect width="100" height="100" rx="14" fill="var(--orange)" />

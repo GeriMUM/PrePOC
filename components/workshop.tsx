@@ -22,6 +22,7 @@ export function Workshop({ coachConfigured, userName }: { coachConfigured: boole
   const [conversationKey, setConversationKey] = useState(0);
   const [coachActive, setCoachActive] = useState(false);
   const [hasConversation, setHasConversation] = useState(false);
+  const [view, setView] = useState<"coach" | "idea">("coach");
   const feedback = useRef<HTMLDivElement>(null);
   const saving = useRef(false);
   const readonly = current?.status === "published";
@@ -71,7 +72,7 @@ export function Workshop({ coachConfigured, userName }: { coachConfigured: boole
   }
   function apply(summary: IdeaSummary) {
     setFields((previous) => ({ ...previous, ...Object.fromEntries(Object.entries(summary).filter(([, value]) => value?.trim())) }));
-    setDirty(true); setNotice(null); setError("");
+    setDirty(true); setNotice(null); setError(""); setView("idea");
   }
 
   const prompt = (key: "problem" | "audience" | "solution" | "approach" | "impact", max: number, rows = 3) =>
@@ -91,7 +92,11 @@ export function Workshop({ coachConfigured, userName }: { coachConfigured: boole
       </select></label>
       <button className="button secondary small" onClick={() => open("")} disabled={busy || coachActive}>+ {t.newIdea}</button>
     </div>
-    <div className="conversation-layout">
+    <div className="view-switch" role="group" aria-label={t.ideaSummary}>
+      {(["coach", "idea"] as const).map((option) => <button key={option} type="button" aria-pressed={view === option} onClick={() => setView(option)}>
+        {option === "coach" ? t.viewCoach : t.viewIdea}</button>)}
+    </div>
+    <div className={`conversation-layout show-${view}`}>
       <Coach key={conversationKey} configured={coachConfigured} fields={fields} disabled={busy || readonly || !ready}
         onApply={apply} onActiveChange={(active) => { setCoachActive(active); if (active) setHasConversation(true); }} />
       <section className="editor-panel summary-panel" aria-label={t.ideaSummary}>
@@ -101,8 +106,7 @@ export function Workshop({ coachConfigured, userName }: { coachConfigured: boole
           <legend className="sr-only">{t.ideaSummary}</legend>
           <div className="basics">
             <label className="field title-field"><span>{t.title}</span><input name="title" placeholder={t.titlePlaceholder} value={fields.title} onChange={(event) => update("title", event.target.value)} maxLength={120} /></label>
-            <div className="two-fields">
-              <label className="field"><span>{t.author}</span><input name="author" value={userName} readOnly title={t.authorFromLogin} /><small>{t.authorFromLogin}</small></label>
+            <div className="event-field">
               <label className="field"><span>{t.event}</span><select value={fields.eventId} onChange={(event) => update("eventId", event.target.value === "coffee-2" ? "coffee-2" : "coffee-1")}>{events.map((event) => <option key={event.id} value={event.id}>{event.name}</option>)}</select></label>
             </div>
           </div>
@@ -129,7 +133,7 @@ export function Workshop({ coachConfigured, userName }: { coachConfigured: boole
       </section>
     </div>
     {confirm && <Modal title={t.publishTitle} closeLabel={t.cancel} onClose={() => { if (!busy) setConfirm(false); }}>
-      <p>{t.publishDescription}</p><div className="modal-actions"><button className="button secondary" disabled={busy} onClick={() => setConfirm(false)}>{t.cancel}</button>
+      <p className="publish-as">{t.publishAs} <strong>{userName}</strong></p><p>{t.publishDescription}</p><div className="modal-actions"><button className="button secondary" disabled={busy} onClick={() => setConfirm(false)}>{t.cancel}</button>
         <button className="button primary" disabled={busy} onClick={() => save(true)}>{busy ? t.saving : t.publishConfirm}</button></div>
     </Modal>}
   </div>;
