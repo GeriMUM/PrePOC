@@ -195,6 +195,7 @@ details[open] > summary::before { content: "\2212"; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
 .detail-meta { display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--muted); margin-bottom: 8px; }
 .detail-meta .event-tag { margin: 0; }
+.detail-meta .copy-link { margin-left: auto; white-space: nowrap; }
 .idea-detail section { padding: 16px 0; border-top: 1px solid var(--line); }
 .idea-detail h3 { font-size: 14px; color: var(--muted); margin-bottom: 6px; }
 .idea-detail p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }

@@ -119,10 +119,10 @@ export function Workshop({ coachConfigured, userName }: { coachConfigured: boole
           {error && <div role="alert" className="alert error">{errorMessage(error, language)}
             {!ready && <button className="text-button" onClick={load}>{t.retry}</button>}
           </div>}
-          {notice && <p role="status" className="alert success">{t[notice]} {notice === "publishedNotice" && <a href="/ideas">{t.gallery} →</a>}</p>}
+          {notice && <p role="status" className="alert success">{t[notice]} {notice === "publishedNotice" && <a href={current ? `/ideas/${current.id}` : "/ideas"}>{t.gallery} →</a>}</p>}
         </div>
         <div className="editor-actions">
-          {readonly ? <p>{t.readonly} <a href="/ideas">{t.gallery} →</a></p> : <>
+          {readonly ? <p>{t.readonly} <a href={current ? `/ideas/${current.id}` : "/ideas"}>{t.gallery} →</a></p> : <>
             <button className="button secondary" disabled={busy || !ready} onClick={() => save(false)}>{busy ? t.saving : t.save}</button>
             <button className="button primary" disabled={busy || !ready || coachActive} onClick={() => {
               if (!publishable(fields)) { setError("INCOMPLETE_IDEA"); return; }
