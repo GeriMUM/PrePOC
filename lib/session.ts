@@ -1,35 +1,43 @@
-import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { z } from "zod";
 import { AppError } from "./errors";
-import { idSchema } from "./model";
+import { sign, verify } from "./tokens";
 
-const cookieName = "spark-session";
-function secret() {
-  const value = process.env.SESSION_SECRET;
-  if (value && value.length >= 32) return value;
-  if (process.env.NODE_ENV === "production") throw new AppError("SESSION_NOT_CONFIGURED", 503);
-  return "local-development-only-not-for-deployment";
-}
-function signature(id: string) {
-  return createHmac("sha256", secret()).update(id).digest("base64url");
+export interface User { id: string; name: string }
+
+export const sessionCookie = "cc-user";
+export const sessionMaxAge = 60 * 60 * 24 * 7;
+const userSchema = z.object({ id: z.string().min(1).max(128), name: z.string().min(1).max(80), exp: z.number() });
+
+export function userToken(user: User, now = Date.now()) {
+  return sign("user", { id: user.id, name: user.name, exp: Math.floor(now / 1000) + sessionMaxAge });
 }
 
-export async function session(create = false): Promise<string> {
-  const jar = await cookies();
-  const value = jar.get(cookieName)?.value;
-  if (value) {
-    const [id, supplied, extra] = value.split(".");
-    if (!extra && idSchema.safeParse(id).success && supplied) {
-      const expected = Buffer.from(signature(id));
-      const actual = Buffer.from(supplied);
-      if (expected.length === actual.length && timingSafeEqual(expected, actual)) return id;
-    }
-  }
-  if (!create) throw new AppError("SESSION_REQUIRED", 401);
-  const id = randomUUID();
-  jar.set(cookieName, `${id}.${signature(id)}`, {
-    httpOnly: true, secure: process.env.NODE_ENV === "production",
-    sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365,
-  });
-  return id;
+export function userFromToken(token: string | undefined, now = Date.now()): User | null {
+  const parsed = userSchema.safeParse(verify("user", token));
+  if (!parsed.success || parsed.data.exp <= now / 1000) return null;
+  return { id: parsed.data.id, name: parsed.data.name };
+}
+
+export const cookieOptions = (maxAge: number, path = "/") => ({
+  httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax" as const, path, maxAge,
+});
+
+export async function currentUser(): Promise<User | null> {
+  return userFromToken((await cookies()).get(sessionCookie)?.value);
+}
+
+/** For API routes: the signed-in user, or HTTP 401. */
+export async function session(): Promise<User> {
+  const user = await currentUser();
+  if (!user) throw new AppError("SESSION_REQUIRED", 401);
+  return user;
+}
+
+/** For pages: the signed-in user, or a redirect into the login flow. */
+export async function requireUser(returnTo: string): Promise<User> {
+  const user = await currentUser();
+  if (!user) redirect(`/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`);
+  return user;
 }

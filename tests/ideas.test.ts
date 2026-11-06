@@ -9,15 +9,17 @@ import { Ideas } from "../lib/ideas";
 import { emptyIdea, type SaveIdea } from "../lib/model";
 import { FileStore } from "../lib/storage";
 
-const owner = randomUUID();
-const other = randomUUID();
+const owner = { id: randomUUID(), name: "Alex Example" };
+const other = { id: randomUUID(), name: "Sam Other" };
 const input: SaveIdea = {
-  title: "Time booking assistant", author: "Alex", eventId: "coffee-1",
+  title: "Time booking assistant", eventId: "coffee-1",
   problem: "Booking hours takes too long.", audience: "Employees",
   solution: "Suggest entries from a short conversation.",
   approach: "Description → suggestion → human approval → booking tool",
   impact: "Test with five people and measure time saved.", publish: false,
 };
+const { author: _author, ...blank } = emptyIdea();
+void _author;
 const hasCode = (code: string) => (error: unknown) => error instanceof AppError && error.code === code;
 
 async function setup() {
@@ -26,15 +28,15 @@ async function setup() {
   return { directory, store, ideas: new Ideas(store), cleanup: () => rm(directory, { recursive: true, force: true }) };
 }
 
-test("drafts persist across service instances and stay out of public and other browser views", async () => {
+test("drafts persist across service instances and stay out of public and other users' views", async () => {
   const { directory, ideas, cleanup } = await setup();
   try {
     const saved = await ideas.save(input, owner);
     assert.equal(saved.status, "draft");
     assert.equal("ownerId" in saved, false);
     assert.deepEqual(await ideas.all(), []);
-    assert.deepEqual(await ideas.all(other), []);
-    const reopened = await new Ideas(new FileStore(directory)).all(owner);
+    assert.deepEqual(await ideas.all(other.id), []);
+    const reopened = await new Ideas(new FileStore(directory)).all(owner.id);
     assert.equal(reopened[0].id, saved.id);
     assert.equal(reopened[0].problem, input.problem);
     assert.equal(reopened[0].version, saved.version);
@@ -42,22 +44,30 @@ test("drafts persist across service instances and stay out of public and other b
   } finally { await cleanup(); }
 });
 
-test("drafts can be incomplete; publishing only requires title, author and problem", async () => {
+test("the author is always the signed-in user and cannot be supplied by the client", async () => {
   const { ideas, cleanup } = await setup();
   try {
-    const draft = { ...emptyIdea(), publish: false };
-    assert.equal((await ideas.save(draft, owner)).status, "draft");
-    for (const field of ["title", "author", "problem"] as const) {
+    assert.equal((await ideas.save(input, owner)).author, owner.name);
+    await assert.rejects(ideas.save({ ...input, author: "Impersonated" }, owner), hasCode("INVALID_INPUT"));
+    await assert.rejects(ideas.save({ ...input, ownerId: other.id }, owner), hasCode("INVALID_INPUT"));
+  } finally { await cleanup(); }
+});
+
+test("drafts can be incomplete; publishing only requires title and problem", async () => {
+  const { ideas, cleanup } = await setup();
+  try {
+    assert.equal((await ideas.save({ ...blank, publish: false }, owner)).status, "draft");
+    for (const field of ["title", "problem"] as const) {
       await assert.rejects(ideas.save({ ...input, [field]: " ", publish: true }, owner), hasCode("INCOMPLETE_IDEA"));
     }
-    const simple = await ideas.save({ ...emptyIdea("Alex"), title: "Time booking", problem: "Booking hours is slow", publish: true }, owner);
+    const simple = await ideas.save({ ...blank, title: "Time booking", problem: "Booking hours is slow", publish: true }, owner);
     assert.equal(simple.status, "published");
+    assert.equal(simple.author, owner.name);
     assert.equal(simple.approach, "");
     assert.equal(simple.solution, "");
     await assert.rejects(ideas.save({ ...input, title: "x".repeat(121) }, owner), hasCode("INVALID_INPUT"));
     await assert.rejects(ideas.save({ ...input, problem: "x".repeat(3001) }, owner), hasCode("INVALID_INPUT"));
     await assert.rejects(ideas.save({ ...input, eventId: "unknown" }, owner), hasCode("INVALID_INPUT"));
-    await assert.rejects(ideas.save({ ...input, ownerId: other }, owner), hasCode("INVALID_INPUT"));
   } finally { await cleanup(); }
 });
 
@@ -91,22 +101,26 @@ test("concurrent edits accept one winner and report a conflict without corruptin
   } finally { await cleanup(); }
 });
 
-test("comments are separate immutable files; concurrent posts are all retained", async () => {
-  const { ideas, cleanup } = await setup();
+test("comments are separate immutable files, carry the signed-in author, and are all retained", async () => {
+  const { store, ideas, cleanup } = await setup();
   try {
     const draft = await ideas.save(input, owner);
     await assert.rejects(ideas.comments(draft.id), hasCode("NOT_FOUND"));
-    await assert.rejects(ideas.comment(draft.id, { author: "Jo", text: "Hello" }), hasCode("NOT_FOUND"));
+    await assert.rejects(ideas.comment(draft.id, { text: "Hello" }, other), hasCode("NOT_FOUND"));
     const published = await ideas.save({ ...input, publish: true }, owner);
     const posted = await Promise.all(Array.from({ length: 10 }, (_, index) =>
-      ideas.comment(published.id, { author: "Jo", text: `Question ${index}` })));
+      ideas.comment(published.id, { text: `Question ${index}` }, other)));
     const comments = await ideas.comments(published.id);
     assert.equal(comments.length, 10);
     assert.equal(new Set(comments.map((comment) => comment.id)).size, 10);
     assert.deepEqual(new Set(comments.map((comment) => comment.id)), new Set(posted.map((comment) => comment.id)));
+    assert.ok(comments.every((comment) => comment.author === other.name && !("authorId" in comment)));
+    const stored = await store.read(`comments/${published.id}/${posted[0].id}.json`);
+    assert.equal(JSON.parse(stored?.text ?? "{}").authorId, other.id);
     assert.equal((await ideas.all())[0].version, published.version);
-    await assert.rejects(ideas.comment(published.id, { author: "Jo", text: " " }), hasCode("INVALID_INPUT"));
-    await assert.rejects(ideas.comment(published.id, { author: "Jo", text: "x".repeat(1501) }), hasCode("INVALID_INPUT"));
+    await assert.rejects(ideas.comment(published.id, { author: "Impersonated", text: "Hi" }, other), hasCode("INVALID_INPUT"));
+    await assert.rejects(ideas.comment(published.id, { text: " " }, other), hasCode("INVALID_INPUT"));
+    await assert.rejects(ideas.comment(published.id, { text: "x".repeat(1501) }, other), hasCode("INVALID_INPUT"));
   } finally { await cleanup(); }
 });
 

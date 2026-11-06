@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { events, type Comment, type Idea } from "../lib/model";
 import { errorMessage } from "../lib/i18n";
-import { authorKey, errorCode, request, usePlatform } from "./platform";
+import { errorCode, request, usePlatform } from "./platform";
 import { Modal } from "./modal";
 
 export function Gallery() {
@@ -54,13 +54,11 @@ function IdeaDetail({ idea, onClose }: { idea: Idea; onClose: () => void }) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
-  const [author, setAuthor] = useState(() => localStorage.getItem(authorKey) ?? "");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [posted, setPosted] = useState(false);
   const load = useCallback(() =>
-    request("/api/session")
-      .then(() => request<Comment[]>(`/api/ideas/${idea.id}/comments`))
+    request<Comment[]>(`/api/ideas/${idea.id}/comments`)
       .then((comments) => { setComments(comments); setError(""); setReady(true); })
       .catch((error: unknown) => setError(errorCode(error))), [idea.id]);
   useEffect(() => { void load(); }, [load]);
@@ -68,9 +66,8 @@ function IdeaDetail({ idea, onClose }: { idea: Idea; onClose: () => void }) {
     event.preventDefault();
     setBusy(true); setError(""); setPosted(false);
     try {
-      const comment = await request<Comment>(`/api/ideas/${idea.id}/comments`, { method: "POST", body: JSON.stringify({ author, text }) });
+      const comment = await request<Comment>(`/api/ideas/${idea.id}/comments`, { method: "POST", body: JSON.stringify({ text }) });
       setComments((previous) => [...previous, comment]); setText(""); setPosted(true);
-      localStorage.setItem(authorKey, comment.author);
     } catch (error) { setError(errorCode(error)); }
     finally { setBusy(false); }
   }
@@ -85,9 +82,8 @@ function IdeaDetail({ idea, onClose }: { idea: Idea; onClose: () => void }) {
       {posted && <p className="alert success" role="status">{t.commentPosted}</p>}
       <form onSubmit={submit}>
         <fieldset disabled={busy || !ready}><legend className="sr-only">{t.addComment}</legend>
-          <label className="field"><span>{t.author}</span><input required value={author} maxLength={80} onChange={(event) => setAuthor(event.target.value)} placeholder={t.authorPlaceholder} /></label>
           <label className="field"><span>{t.commentLabel}</span><textarea required value={text} maxLength={1500} rows={3} onChange={(event) => { setText(event.target.value); setPosted(false); }} placeholder={t.commentPlaceholder} /><small>{text.length} / 1500</small></label>
-          <button className="button primary" disabled={!author.trim() || !text.trim()}>{busy ? t.saving : t.addComment}</button>
+          <button className="button primary" disabled={!text.trim()}>{busy ? t.saving : t.addComment}</button>
         </fieldset>
       </form>
     </section>

@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { AppError } from "./errors";
 import {
   commentInputSchema, commentRecordSchema, ideaRecordSchema, publishable, saveIdeaSchema,
-  type Comment, type Idea, type IdeaRecord,
+  type Comment, type CommentRecord, type Idea, type IdeaRecord,
 } from "./model";
+import type { User } from "./session";
 import type { JsonStore, StoredFile } from "./storage";
 
 const ideaKey = (id: string) => `ideas/${id}.json`;
@@ -14,6 +15,12 @@ function present(record: IdeaRecord, version: string): Idea {
   const { ownerId: _ownerId, ...idea } = record;
   void _ownerId;
   return { ...idea, version };
+}
+
+function presentComment(record: CommentRecord): Comment {
+  const { authorId: _authorId, ...comment } = record;
+  void _authorId;
+  return comment;
 }
 
 export class Ideas {
@@ -30,10 +37,12 @@ export class Ideas {
     }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
-  async save(raw: unknown, ownerId: string): Promise<Idea> {
+  async save(raw: unknown, owner: User): Promise<Idea> {
+    const ownerId = owner.id;
     const parsed = saveIdeaSchema.safeParse(raw);
     if (!parsed.success) throw new AppError("INVALID_INPUT");
-    const { id, version, publish, ...fields } = parsed.data;
+    const { id, version, publish, ...rest } = parsed.data;
+    const fields = { ...rest, author: owner.name };
     if (publish && !publishable(fields)) throw new AppError("INCOMPLETE_IDEA");
     let existing: IdeaRecord | undefined;
     if (id) {
@@ -65,16 +74,18 @@ export class Ideas {
     await this.requirePublished(id);
     const keys = await this.store.keys(`comments/${id}/`);
     const files = await Promise.all(keys.map((key) => this.store.read(key)));
-    return files.flatMap((file) => file ? [commentRecordSchema.parse(JSON.parse(file.text))] : [])
+    return files.flatMap((file) => file ? [presentComment(commentRecordSchema.parse(JSON.parse(file.text)))] : [])
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
-  async comment(id: string, raw: unknown): Promise<Comment> {
+  async comment(id: string, raw: unknown, author: User): Promise<Comment> {
     await this.requirePublished(id);
     const parsed = commentInputSchema.safeParse(raw);
     if (!parsed.success) throw new AppError("INVALID_INPUT");
-    const comment: Comment = { ...parsed.data, id: randomUUID(), ideaId: id, createdAt: new Date().toISOString() };
+    const comment: CommentRecord = {
+      ...parsed.data, author: author.name, authorId: author.id, id: randomUUID(), ideaId: id, createdAt: new Date().toISOString(),
+    };
     await this.store.write(`comments/${id}/${comment.id}.json`, JSON.stringify(comment));
-    return comment;
+    return presentComment(comment);
   }
 }

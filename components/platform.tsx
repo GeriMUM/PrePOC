@@ -7,7 +7,6 @@ import type { Language } from "../lib/model";
 
 const Context = createContext<{ language: Language; t: Messages }>({ language: "en", t: messages.en });
 export function usePlatform() { return useContext(Context); }
-export const authorKey = "cc-author";
 
 export function Logo({ size = 44 }: { size?: number }) {
   return <svg className="logo" width={size} height={size} viewBox="0 0 100 100" aria-hidden="true">
@@ -22,7 +21,7 @@ function persistLanguage(next: Language) {
   document.cookie = `spark-language=${next};path=/;max-age=31536000;SameSite=Lax${location.protocol === "https:" ? ";Secure" : ""}`;
 }
 
-export function Platform({ children, initialLanguage }: { children: ReactNode; initialLanguage: Language }) {
+export function Platform({ children, initialLanguage, userName }: { children: ReactNode; initialLanguage: Language; userName?: string }) {
   const [language, setLanguage] = useState(initialLanguage);
   const pathname = usePathname();
   const t = messages[language];
@@ -41,6 +40,9 @@ export function Platform({ children, initialLanguage }: { children: ReactNode; i
           <a href="/" aria-current={pathname === "/" ? "page" : undefined}>{t.workshop}</a>
           <a href="/ideas" aria-current={pathname.startsWith("/ideas") ? "page" : undefined}>{t.gallery}</a>
         </nav>
+        {userName && <form className="account" method="post" action="/api/auth/logout">
+          <span title={userName}>{userName}</span><button type="submit" className="text-button">{t.signOut}</button>
+        </form>}
         <div className="language-control" role="group" aria-label={t.language}>
           {(["de", "en"] as const).map((code) =>
             <button key={code} type="button" aria-pressed={language === code} onClick={() => switchLanguage(code)}>{code.toUpperCase()}</button>)}

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Figtree } from "next/font/google";
 import { cookies } from "next/headers";
 import { Platform } from "../components/platform";
+import { currentUser } from "../lib/session";
 import "./globals.css";
 
 const font = Figtree({ subsets: ["latin"], display: "swap", variable: "--font" });
@@ -14,5 +15,6 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const language = (await cookies()).get("spark-language")?.value === "de" ? "de" : "en";
-  return <html lang={language} className={font.variable}><body><Platform initialLanguage={language}>{children}</Platform></body></html>;
+  const user = await currentUser().catch(() => null);
+  return <html lang={language} className={font.variable}><body><Platform initialLanguage={language} userName={user?.name}>{children}</Platform></body></html>;
 }

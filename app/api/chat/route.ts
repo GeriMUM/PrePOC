@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     const input = chatInputSchema.safeParse(await body(request, 96_000));
     if (!input.success) throw new AppError("INVALID_INPUT");
     const owner = await session();
-    reserveCoachRequest(owner);
+    reserveCoachRequest(owner.id);
     return geminiReply(input.data);
   });
 }

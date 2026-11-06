@@ -1,15 +1,17 @@
 # copilot & coffee - The idea lab
 
 A small, bilingual AI hackathon submission platform. One Next.js application,
-two main pages, JSON files, and no database.
+two main pages, JSON files, no database, and Microsoft Entra ID sign-in.
 
 ## What is included
 
 - **Idea workshop (`/`):** a Google Gemini chat beside an editable idea summary.
   Employees review and apply suggested titles and descriptions; no technical
   architecture answers are required.
-- Save incomplete drafts at any time, including before entering a display name.
-  Publishing requires only a title, display name, and problem description.
+- Everything requires signing in with a company Microsoft account. The author
+  name on ideas and comments comes from that sign-in and cannot be typed or changed.
+- Save incomplete drafts at any time; they belong to your account, on any device.
+  Publishing requires only a title and problem description.
   The submission form contains only these fields and the event selector; there
   is no optional-details section. Existing additional details remain preserved
   in saved records.
@@ -38,8 +40,10 @@ npm run dev
 Copy the example only when creating a new environment file; do not overwrite
 existing storage/session settings or credentials.
 Open `http://localhost:3000`. Development defaults to JSON files in `.data`,
-which is ignored by Git. No AI or storage credentials are needed to try the
-forms, persistence, publishing, and comments locally.
+which is ignored by Git. No AI, storage, or Entra credentials are needed to try the
+forms, persistence, publishing, and comments locally: without `ENTRA_*`
+variables, development signs you in as a fixed "Local Developer" test user.
+This shortcut is disabled in production builds and on Vercel.
 
 ```powershell
 npm run typecheck
@@ -75,6 +79,9 @@ For a local production build, set `STORAGE_DRIVER=file` and a random
    | `BLOB_STORE_ID` | Added by the connected private Blob store |
    | `BLOB_READ_WRITE_TOKEN` | Optional alternative for static-token authentication, e.g. outside Vercel |
    | `SESSION_SECRET` | A randomly generated secret, at least 32 characters |
+   | `ENTRA_TENANT_ID` | Directory (tenant) ID of the company Entra tenant |
+   | `ENTRA_CLIENT_ID` | Application (client) ID of the app registration |
+   | `ENTRA_CLIENT_SECRET` | Client secret value of the app registration |
    | `GEMINI_API_KEY` | Server-only Gemini API key from Google AI Studio |
    | `GEMINI_MODEL` | `gemini-3.1-flash-lite` (default) |
 
@@ -87,7 +94,7 @@ For a local production build, set `STORAGE_DRIVER=file` and a random
 4. Deploy or redeploy after configuring environment variables. Vercel gives the
    website an HTTPS address. Do not commit credentials.
 5. At that address, save and reopen a draft, publish an idea, filter its event,
-   post a comment, and verify another browser cannot list or modify the draft.
+   post a comment, and verify another account cannot list or modify the draft.
 
 Use **separate Blob stores and session secrets for Preview and Production**,
 so preview deployments cannot modify production submissions.
@@ -136,7 +143,7 @@ JSON files regularly according to company retention and backup requirements.
    The default uses `thinkingLevel=minimal`; legacy Gemini 2.5 Flash models use
    `thinkingBudget=0`. Other configured models use their default thinking settings.
 4. Restart the development server or redeploy. The workshop uses its own chat,
-   not a Microsoft iframe. Old `COPILOT_*` variables do not select its provider.
+   not a Microsoft iframe.
 5. Test English and German, a follow-up question, a suggested summary, applying
    it, saving a draft, and publishing. The model never saves or publishes.
 
@@ -159,11 +166,10 @@ Setup failures distinguish rejected keys, disabled API access, missing models,
 permission failures, and rejected request parameters. Only fixed error codes
 are returned or logged, never raw Google error messages or credential metadata.
 
-The endpoint requires the browser's signed pilot session and same-origin JSON.
-An in-memory per-session cooldown allows at most one attempt per 10 seconds.
-This is a small-pilot guard, not a durable or distributed quota: a new browser,
-server restart, or another instance can bypass it. Keep the site access-restricted
-and monitor provider quotas before wider rollout.
+The endpoint requires a signed-in user and same-origin JSON.
+An in-memory per-user cooldown allows at most one attempt per 10 seconds.
+This is a small-pilot guard, not a durable or distributed quota: a server restart
+or another instance can reset it. Monitor provider quotas before wider rollout.
 
 Google's free quota and rate limits vary by model, project, and availability.
 When quota is exhausted, chat reports it instead of silently switching providers.
@@ -205,30 +211,60 @@ References:
 [Gemini REST API](https://ai.google.dev/api/generate-content),
 [Vercel Blob SDK](https://vercel.com/docs/vercel-blob/using-blob-sdk).
 
-## Identity and internal-use boundary
+## Microsoft Entra sign-in
 
-**This is a pilot with simulated employee identity, not an employee-only
-production service.** Display names are self-declared. Anyone who can reach the
-website can read published ideas and create submissions/comments. Private Blob
-storage does not restrict access to the website itself.
+Sign-in is a single-tenant OpenID Connect authorization code flow with PKCE,
+implemented in `lib/auth.ts` without extra packages. Only accounts of the
+configured tenant can sign in. The app requests only `openid profile` (name and
+account ID), which needs no admin consent.
 
-A signed, HttpOnly, SameSite browser cookie identifies draft ownership. Another
-browser cannot access those drafts via the API, but the cookie is a bearer
-credential, not company identity. People sharing a browser share its drafts.
-Clearing it or changing `SESSION_SECRET` loses access to existing drafts.
-There is no account recovery or cross-device draft access.
+1. In the [Entra admin center](https://entra.microsoft.com) open **App registrations →
+   New registration**. If you may not register apps, ask an Entra admin to do these steps.
+   - Supported account types: **Accounts in this organizational directory only**.
+   - Redirect URI: platform **Web**,
+     `https://<your-project>.vercel.app/api/auth/callback`.
+2. Under **Authentication**, add `http://localhost:3000/api/auth/callback` as a
+   second Web redirect URI to test the real sign-in locally.
+3. Under **Certificates & secrets**, create a client secret and copy its **Value**
+   (not its ID). Note its expiry date: sign-in stops when it expires.
+4. From **Overview**, copy the Directory (tenant) ID and Application (client) ID.
+5. Set `ENTRA_TENANT_ID`, `ENTRA_CLIENT_ID`, and `ENTRA_CLIENT_SECRET` in Vercel
+   (and optionally in `.env.local`), then redeploy. Never commit them.
+6. Optional: to limit access to specific people, enable **Assignment required** on
+   the app's Enterprise application entry and assign users or groups.
 
-Before entering real internal/confidential information or broadly rolling out,
-add approved employee authentication (for example Entra ID), account-backed
-ownership, and appropriate access controls, abuse limits, and retention.
-Anonymous chat does not remove this requirement. Do not expose this pilot as a
-confidential company system. The UI displays this boundary on both pages.
+Each additional domain (for example a custom domain) needs its own redirect URI.
+Preview deployments get changing URLs, so sign-in is meant for Production and
+localhost.
+
+### What this protects
+
+- Every page and API route requires a signed-in user. Unauthenticated page
+  visits are redirected to Microsoft; API calls get HTTP 401.
+- The author name of ideas and comments is set by the server from the sign-in.
+  Requests that try to supply an author are rejected.
+- Drafts belong to the Entra account (`oid`), not to a browser.
+- Comments store the author's account ID internally (not returned to browsers),
+  so misuse can be traced to an account.
+- The session is a signed (HMAC-SHA256), HttpOnly, SameSite=Lax cookie valid for
+  seven days. Changing `SESSION_SECRET` signs everyone out.
+- The ID token is received directly from Entra's token endpoint over TLS in
+  exchange for the client secret; its audience, issuer, tenant, nonce, and
+  expiry are checked (OpenID Connect Core 1.0, section 3.1.3.7).
+
+"Sign out" ends the session on this website only, not the Microsoft session, so
+"Sign in" afterwards usually completes without a password prompt.
+Ideas and comments created before sign-in was introduced keep their old,
+self-declared names; old anonymous drafts are no longer reachable.
+
+Before entering confidential information, check company approval, retention, and
+moderation needs. There is no admin role yet to hide ideas or comments.
 
 ## Verification boundaries
 
 Automated tests cover local persistence, draft isolation, publishing,
 validation/length limits, concurrent update conflicts, concurrent comments,
 storage path validation, bilingual message coverage, Gemini request/response
-handling and quota errors, legacy Copilot configuration, and summary validation.
-Live private Blob operations, real Gemini responses, and public HTTPS deployment
-must be smoke-tested with your organization's accounts and configuration.
+handling and quota errors, sign-in validation and session tokens, and summary validation.
+Live private Blob operations, real Gemini responses, the real Microsoft sign-in, and public
+HTTPS deployment must be smoke-tested with your organization's accounts and configuration.

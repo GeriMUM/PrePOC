@@ -13,11 +13,14 @@ async function ideaId(context: Context) {
   return id;
 }
 export async function GET(_request: Request, context: Context) {
-  return api(async () => new Ideas(storage()).comments(await ideaId(context)));
+  return api(async () => {
+    await session();
+    return new Ideas(storage()).comments(await ideaId(context));
+  });
 }
 export async function POST(request: Request, context: Context) {
   return api(async () => {
-    await session();
-    return new Ideas(storage()).comment(await ideaId(context), await body(request));
+    const user = await session();
+    return new Ideas(storage()).comment(await ideaId(context), await body(request), user);
   });
 }

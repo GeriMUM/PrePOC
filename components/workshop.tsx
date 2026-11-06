@@ -6,11 +6,11 @@ import type { IdeaSummary } from "../lib/coach";
 import { errorMessage } from "../lib/i18n";
 import { Coach } from "./coach";
 import { Modal } from "./modal";
-import { authorKey, errorCode, request, usePlatform } from "./platform";
+import { errorCode, request, usePlatform } from "./platform";
 
-export function Workshop({ coachConfigured }: { coachConfigured: boolean }) {
+export function Workshop({ coachConfigured, userName }: { coachConfigured: boolean; userName: string }) {
   const { language, t } = usePlatform();
-  const [fields, setFields] = useState<IdeaFields>(emptyIdea);
+  const [fields, setFields] = useState<IdeaFields>(() => emptyIdea(userName));
   const [current, setCurrent] = useState<Idea | null>(null);
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [ready, setReady] = useState(false);
@@ -27,13 +27,8 @@ export function Workshop({ coachConfigured }: { coachConfigured: boolean }) {
   const readonly = current?.status === "published";
 
   const load = useCallback(() =>
-    request("/api/session")
-      .then(() => request<Idea[]>("/api/ideas?mine=1"))
-      .then((ideas) => {
-        setIdeas(ideas); setError(""); setReady(true);
-        const author = localStorage.getItem(authorKey);
-        if (author) setFields((previous) => previous.author ? previous : { ...previous, author });
-      })
+    request<Idea[]>("/api/ideas?mine=1")
+      .then((ideas) => { setIdeas(ideas); setError(""); setReady(true); })
       .catch((error: unknown) => setError(errorCode(error))), []);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -52,7 +47,7 @@ export function Workshop({ coachConfigured }: { coachConfigured: boolean }) {
   function open(id: string) {
     if ((dirty || hasConversation) && !window.confirm(t.leaveConversation)) return;
     const idea = ideas.find((idea) => idea.id === id);
-    setFields(idea ?? emptyIdea(fields.author)); setCurrent(idea ?? null);
+    setFields(idea ?? emptyIdea(userName)); setCurrent(idea ?? null);
     setDirty(false); setError(""); setNotice(null); setHasConversation(false);
     setConversationKey((value) => value + 1);
   }
@@ -64,12 +59,11 @@ export function Workshop({ coachConfigured }: { coachConfigured: boolean }) {
       const saved = await request<Idea>("/api/ideas", {
         method: "POST",
         body: JSON.stringify({
-          ...Object.fromEntries(Object.keys(emptyIdea()).map((key) => [key, fields[key as keyof IdeaFields]])),
+          ...Object.fromEntries(Object.keys(emptyIdea()).filter((key) => key !== "author").map((key) => [key, fields[key as keyof IdeaFields]])),
           ...(current ? { id: current.id, version: current.version } : {}), publish,
         }),
       });
       setCurrent(saved); setFields(saved);
-      if (saved.author) localStorage.setItem(authorKey, saved.author);
       setIdeas((previous) => [saved, ...previous.filter((idea) => idea.id !== saved.id)]);
       setDirty(false); setNotice(publish ? "publishedNotice" : "saved"); setConfirm(false);
     } catch (error) { setError(errorCode(error)); setConfirm(false); }
@@ -108,7 +102,7 @@ export function Workshop({ coachConfigured }: { coachConfigured: boolean }) {
           <div className="basics">
             <label className="field title-field"><span>{t.title}</span><input name="title" placeholder={t.titlePlaceholder} value={fields.title} onChange={(event) => update("title", event.target.value)} maxLength={120} /></label>
             <div className="two-fields">
-              <label className="field"><span>{t.author}</span><input name="author" autoComplete="nickname" placeholder={t.authorPlaceholder} value={fields.author} onChange={(event) => update("author", event.target.value)} maxLength={80} /></label>
+              <label className="field"><span>{t.author}</span><input name="author" value={userName} readOnly title={t.authorFromLogin} /><small>{t.authorFromLogin}</small></label>
               <label className="field"><span>{t.event}</span><select value={fields.eventId} onChange={(event) => update("eventId", event.target.value === "coffee-2" ? "coffee-2" : "coffee-1")}>{events.map((event) => <option key={event.id} value={event.id}>{event.name}</option>)}</select></label>
             </div>
           </div>

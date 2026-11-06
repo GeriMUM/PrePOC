@@ -18,7 +18,8 @@ export const ideaFieldsSchema = z.object({
   impact: z.string().trim().max(2000),
 });
 
-export const saveIdeaSchema = ideaFieldsSchema.extend({
+// The author always comes from the signed-in user, never from the request body.
+export const saveIdeaSchema = ideaFieldsSchema.omit({ author: true }).extend({
   id: idSchema.optional(),
   version: z.string().min(1).max(256).optional(),
   publish: z.boolean(),
@@ -26,18 +27,19 @@ export const saveIdeaSchema = ideaFieldsSchema.extend({
 
 export const ideaRecordSchema = ideaFieldsSchema.extend({
   id: idSchema,
-  ownerId: idSchema,
+  ownerId: z.string().min(1).max(128),
   status: z.enum(["draft", "published"]),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
 
 export const commentInputSchema = z.object({
-  author: z.string().trim().min(1).max(80),
   text: z.string().trim().min(1).max(1500),
 }).strict();
 
 export const commentRecordSchema = commentInputSchema.extend({
+  author: z.string().trim().min(1).max(80),
+  authorId: z.string().min(1).max(128).optional(),
   id: idSchema,
   ideaId: idSchema,
   createdAt: z.iso.datetime(),
@@ -46,7 +48,8 @@ export const commentRecordSchema = commentInputSchema.extend({
 export type IdeaFields = z.infer<typeof ideaFieldsSchema>;
 export type SaveIdea = z.infer<typeof saveIdeaSchema>;
 export type IdeaRecord = z.infer<typeof ideaRecordSchema>;
-export type Comment = z.infer<typeof commentRecordSchema>;
+export type CommentRecord = z.infer<typeof commentRecordSchema>;
+export type Comment = Omit<CommentRecord, "authorId">;
 export type Idea = Omit<IdeaRecord, "ownerId"> & { version: string };
 export type Language = "en" | "de";
 
