@@ -3,7 +3,7 @@ import { coachingContext, parseCoachReply } from "./coach";
 import { AppError } from "./errors";
 import { geminiApiKey } from "./gemini-config";
 import { emptyIdea, ideaFieldsSchema } from "./model";
-import { text } from "./text";
+import { clean, text } from "./text";
 
 export const chatMessageSchema = z.object({
   role: z.enum(["user", "model"]),
@@ -82,7 +82,11 @@ const cooldowns = new Map<string, number>();
 export function reserveCoachRequest(sessionId: string, now = Date.now()) {
   for (const [id, expires] of cooldowns) if (expires <= now) cooldowns.delete(id);
   if (cooldowns.has(sessionId)) throw new AppError("COACH_RATE_LIMITED", 429);
-  cooldowns.set(sessionId, now + 10_000);
+  cooldowns.set(sessionId, now + 3_000);
+}
+/** A failed request should not block the immediate retry. */
+export function releaseCoachRequest(sessionId: string) {
+  cooldowns.delete(sessionId);
 }
 
 export async function geminiReply(input: unknown, fetcher: typeof fetch = fetch) {
@@ -132,7 +136,7 @@ export async function geminiReply(input: unknown, fetcher: typeof fetch = fetch)
   }
   if (candidate?.finishReason === "MAX_TOKENS") throw new AppError("GEMINI_TRUNCATED", 502);
   if (candidate?.finishReason !== "STOP") throw new AppError("GEMINI_INVALID_RESPONSE", 502);
-  const text = candidate.content?.parts.filter((part) => !part.thought).map((part) => part.text ?? "").join("").trim();
+  const text = clean(candidate.content?.parts.filter((part) => !part.thought).map((part) => part.text ?? "").join("") ?? "");
   if (!text || text.length > 6000) throw new AppError("GEMINI_INVALID_RESPONSE", 502);
   return { content: text, ...parseCoachReply(text) };
 }

@@ -32,6 +32,42 @@ export function Coach({ fields, onApply, disabled, onActiveChange, configured, n
   }, []);
   useEffect(() => { end.current?.scrollIntoView({ block: "nearest", behavior: "instant" }); }, [messages, busy]);
 
+  // "Move to form": the server asks the coach for title and problem of the conversation so far.
+  async function moveToForm() {
+    if (inFlight.current || disabled || !configured || messages.length < 2) return;
+    inFlight.current = true; setBusy(true); setError(""); onActiveChange(true);
+    const abort = new AbortController();
+    controller.current = abort;
+    const timeout = setTimeout(() => abort.abort(), 295_000);
+    try {
+      let history = messages.map((entry) => ({ role: entry.role, text: entry.content }));
+      // Newest complete pairs that fit the server's limits; one pair (max 4,000 + 6,000 characters) always fits.
+      while (history.length > 2 && (history.length > 10 || history.reduce((length, turn) => length + turn.text.length, 0) > 10_000)) history = history.slice(2);
+      const result = await request<{ summary: IdeaSummary; conversation?: string }>("/api/chat/summary", {
+        method: "POST", signal: abort.signal,
+        body: JSON.stringify({
+          language, fields: { title: fields.title, problem: fields.problem }, messages: history,
+          ...(conversation.current ? { conversation: conversation.current } : {}),
+        }),
+      });
+      if (!active.current) return;
+      if (result.conversation) conversation.current = result.conversation;
+      onApply(result.summary);
+    } catch (error) {
+      if (active.current) fail(abort.signal.aborted ? "COACH_TIMEOUT" : errorCode(error));
+    } finally {
+      clearTimeout(timeout);
+      inFlight.current = false;
+      if (active.current) { setBusy(false); onActiveChange(false); }
+    }
+  }
+
+  // After the agent refused or broke the conversation, the next message starts a fresh one instead of failing again.
+  function fail(code: string) {
+    if (["COPILOT_REJECTED", "COPILOT_UNAVAILABLE", "COPILOT_INVALID_RESPONSE", "INVALID_INPUT"].includes(code)) conversation.current = undefined;
+    setError(code);
+  }
+
   async function send(event: FormEvent) {
     event.preventDefault();
     const message = text.trim();
@@ -39,7 +75,7 @@ export function Coach({ fields, onApply, disabled, onActiveChange, configured, n
     inFlight.current = true; setBusy(true); setError(""); onActiveChange(true);
     const abort = new AbortController();
     controller.current = abort;
-    const timeout = setTimeout(() => abort.abort(), 55_000);
+    const timeout = setTimeout(() => abort.abort(), 295_000);
     try {
       const reply = await request<Reply>("/api/chat", {
         method: "POST", signal: abort.signal,
@@ -58,7 +94,7 @@ export function Coach({ fields, onApply, disabled, onActiveChange, configured, n
       setText("");
       setError(reply.invalidSummary ? "COACH_INVALID_SUMMARY" : "");
     } catch (error) {
-      if (active.current) setError(abort.signal.aborted ? "COACH_TIMEOUT" : errorCode(error));
+      if (active.current) fail(abort.signal.aborted ? "COACH_TIMEOUT" : errorCode(error));
     } finally {
       clearTimeout(timeout);
       inFlight.current = false;
@@ -94,6 +130,7 @@ export function Coach({ fields, onApply, disabled, onActiveChange, configured, n
           }}
           placeholder={t.chatPlaceholder} disabled={disabled || busy || !configured} />
         <div className="compose-row"><span className="microcopy">{t.enterHint}</span>
+          {messages.length >= 2 && <button type="button" className="button secondary" disabled={disabled || busy || !configured} onClick={moveToForm}>{t.moveToForm}</button>}
           <button className="button primary" disabled={disabled || busy || !configured || !text.trim()}>{t.sendMessage}</button></div>
       </form>
     </div>

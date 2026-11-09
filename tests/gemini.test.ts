@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import { coachHistory } from "../lib/coach";
 import { AppError } from "../lib/errors";
-import { chatInputSchema, geminiReply, reserveCoachRequest } from "../lib/gemini";
+import { chatInputSchema, geminiReply, releaseCoachRequest, reserveCoachRequest } from "../lib/gemini";
 import { errorMessage } from "../lib/i18n";
 import { geminiApiKey } from "../lib/gemini-config";
 
@@ -194,9 +194,13 @@ test("thinking parts are not exposed as chatbot answers", async () => {
 
 test("per-session cooldown expires and does not block another browser", () => {
   reserveCoachRequest("browser-one", 1000);
-  assert.throws(() => reserveCoachRequest("browser-one", 10_999), hasCode("COACH_RATE_LIMITED"));
+  assert.throws(() => reserveCoachRequest("browser-one", 3_999), hasCode("COACH_RATE_LIMITED"));
   reserveCoachRequest("browser-two", 2000);
-  reserveCoachRequest("browser-one", 11_000);
+  reserveCoachRequest("browser-one", 4_000);
+  // A failed request releases its pause, so the retry is not blocked.
+  reserveCoachRequest("browser-three", 5_000);
+  releaseCoachRequest("browser-three");
+  reserveCoachRequest("browser-three", 5_001);
 });
 
 test("all Gemini errors are localized without exposing provider details", () => {

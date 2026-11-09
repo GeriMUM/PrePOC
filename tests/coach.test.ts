@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { coachingContext, parseCoachReply } from "../lib/coach";
+import { coachingContext, extractSummary, parseCoachReply, summaryRequest } from "../lib/coach";
 import { emptyIdea } from "../lib/model";
 
 test("a plain reply stays conversational; a structured summary is separated for review", () => {
@@ -48,4 +48,16 @@ test("the coach receives the selected language and current draft, not the employ
   assert.match(context, /Time booking/);
   assert.match(context, /idea-summary/);
   assert.doesNotMatch(context, /Private name/);
+});
+
+test("the move-to-form summary is read from plain JSON, fenced JSON or JSON with surrounding text", () => {
+  assert.deepEqual(extractSummary('{"title":"Wochenreport","problem":"Freitags Zahlen sammeln dauert."}'), { title: "Wochenreport", problem: "Freitags Zahlen sammeln dauert." });
+  assert.deepEqual(extractSummary('Gern!\n```json\n{"title":"Wochenreport"}\n```'), { title: "Wochenreport" });
+  assert.deepEqual(extractSummary('```idea-summary\n{"problem":"Slow"}\n```'), { problem: "Slow" });
+  assert.equal(extractSummary(`{"title":"${"x".repeat(200)}"}`)?.title?.length, 120);
+  for (const bad of ["Keine Ahnung.", "{}", "[1,2]", '{"author":"Boss"}', '{"title": 5}', "{not json}"]) assert.equal(extractSummary(bad), null);
+  // Only title and problem ever reach the form.
+  assert.deepEqual(extractSummary('{"title":"T","ownerId":"x","approach":"A"}'), { title: "T" });
+  assert.match(summaryRequest("de"), /ausschließlich mit einem JSON-Objekt/);
+  assert.match(summaryRequest("en"), /only with a JSON object/);
 });

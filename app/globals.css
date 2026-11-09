@@ -133,6 +133,7 @@ select { width: auto; padding-right: 32px; }
 .compose-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .compose-row .microcopy { margin: 0; }
 .compose-row .button { margin-left: auto; }
+.compose-row .button + .button { margin-left: 0; }
 .setup-notice { font-size: 14px; padding: 12px 14px; background: var(--orange-soft); border-radius: 6px; margin: 0 0 12px; }
 
 /* Summary / editor */

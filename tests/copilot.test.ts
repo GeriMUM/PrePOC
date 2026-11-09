@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { coachName, coachProvider } from "../lib/coach-config";
-import { composeMessage, copilotReply, directLineEndpoints } from "../lib/copilot";
+import { composeMessage, copilotReply, directLineEndpoints, replyBudget } from "../lib/copilot";
 import { AppError } from "../lib/errors";
 import { errorMessage } from "../lib/i18n";
 import { verify } from "../lib/tokens";
@@ -40,14 +40,17 @@ function directLine(reply: string | string[] = "Welche Aufgabe nervt am meisten?
     if (method === "POST") {
       if (behaviour.sendStatus) return Response.json({}, { status: behaviour.sendStatus });
       conversation.activities.push({ type: "message", ...body });
+      const sentId = `${match[1]}|${conversation.activities.length}`;
+      // A greeting that arrives late, tagged as reply to nothing we sent, must not be mixed in.
+      if (behaviour.greeting) conversation.activities.push({ type: "message", from: { id: "bot", role: "bot" }, text: "Late greeting", replyToId: "conversation-start" });
       if (!behaviour.silent) {
         conversation.activities.push({ type: "typing", from: { id: "bot", role: "bot" } });
         const texts = Array.isArray(reply) ? reply : [reply];
         texts.forEach((text, index) => conversation.activities.push({
-          type: "message", from: { id: "bot", role: "bot" }, text, inputHint: index < texts.length - 1 ? "ignoringInput" : "acceptingInput",
+          type: "message", from: { id: "bot", role: "bot" }, text, replyToId: sentId, inputHint: index < texts.length - 1 ? "ignoringInput" : "acceptingInput",
         }));
       }
-      return Response.json({ id: `${match[1]}|${conversation.activities.length}` });
+      return Response.json({ id: sentId });
     }
     const watermark = match[2] ? Number(match[2]) : 0;
     return Response.json({ activities: conversation.activities.slice(watermark), watermark: String(conversation.activities.length) });
@@ -63,7 +66,7 @@ test("the first message starts a conversation, carries the draft as context and 
   const reply = await copilotReply(input, secret, userId, options(line.fetcher));
   assert.equal(reply.text, "Wer ist betroffen?");
   assert.deepEqual(reply.summary, { title: "Zeiterfassung ohne Aufwand" });
-  assert.doesNotMatch(reply.content, /Hallo! Ich bin dein Coach/);
+  assert.doesNotMatch(reply.content, /Hallo! Ich bin dein Coach|Late greeting/);
   const sent = line.calls.find((call) => call.method === "POST" && call.url.includes("/activities"))?.body as { from: { id: string }; text: string; locale: string };
   assert.ok(!sent.from.id.includes(userId) && sent.from.id.length >= 16);
   assert.match(sent.text, /^Hilf mir, die Zeiterfassung zu vereinfachen\.\n\n---\nKontext/);
@@ -105,10 +108,15 @@ test("multi-part replies are joined; a silent agent is a timeout; rejected secre
 test("a European agent is found on its regional endpoint, remembered, and resumed there", async () => {
   delete (globalThis as { __ccDirectLineEndpoint?: string }).__ccDirectLineEndpoint;
   const line = directLine("Servus!", { region: "europe" });
+  const india = directLine("Namaste!", { region: "india" });
+  const fromIndia = await copilotReply(input, secret, userId, options(india.fetcher));
+  assert.equal(fromIndia.text, "Namaste!");
+  assert.deepEqual(india.calls.filter((call) => call.method === "POST" && call.url.endsWith("/conversations")).map((call) => new URL(call.url).host), ["europe.directline.botframework.com", "directline.botframework.com", "india.directline.botframework.com"]);
+  delete (globalThis as { __ccDirectLineEndpoint?: string }).__ccDirectLineEndpoint;
   const reply = await copilotReply(input, secret, userId, options(line.fetcher));
   assert.equal(reply.text, "Servus!");
   const starts = line.calls.filter((call) => call.method === "POST" && call.url.endsWith("/conversations")).map((call) => new URL(call.url).host);
-  assert.deepEqual(starts, ["directline.botframework.com", "europe.directline.botframework.com"]);
+  assert.deepEqual(starts, ["europe.directline.botframework.com"]);
   assert.equal((verify("coach", reply.conversation) as { b: string }).b, "https://europe.directline.botframework.com");
   assert.equal(directLineEndpoints({})[0], "https://europe.directline.botframework.com");
   const again = await copilotReply({ ...input, conversation: reply.conversation }, secret, userId, options(line.fetcher));
@@ -142,3 +150,44 @@ test("the coach provider follows the configured credentials and an explicit choi
 function geminiProviderOrNull() {
   return process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() ? "gemini" : null;
 }
+
+test("a silent agent ends within the time budget with a bounded number of polls", async () => {
+  const line = directLine("x", { silent: true, region: "europe" });
+  const startedAt = clock;
+  await assert.rejects(copilotReply(input, secret, userId, options(line.fetcher)), hasCode("COPILOT_TIMEOUT"));
+  assert.ok(clock - startedAt <= replyBudget, `took ${clock - startedAt} ms`);
+  const polls = line.calls.filter((call) => call.method === "GET").length;
+  // About 200 reads in the worst case; reads cost no tokens.
+  assert.ok(polls <= 210, `${polls} polls`);
+});
+
+test("a very slow Direct Line service cannot push the reply past the time budget", async () => {
+  const fast = directLine("Antwort", { region: "europe" });
+  // Every request takes 100 s; the budget must cut the whole exchange off, not each request.
+  const perRequest = 100_000;
+  const slow = (async (url: string, init?: RequestInit) => { clock += perRequest; return fast.fetcher(url, init); }) as unknown as typeof fetch;
+  const startedAt = clock;
+  await assert.rejects(copilotReply(input, secret, userId, options(slow)), hasCode("COPILOT_TIMEOUT"));
+  // No request starts after the budget; the last one may still run (in production its abort signal caps it at 10 s).
+  assert.ok(clock - startedAt <= replyBudget + perRequest, `took ${clock - startedAt} ms`);
+  assert.ok(fast.calls.length <= 3, `${fast.calls.length} requests`);
+});
+
+test("an all-invisible reply is refused and a refused resumed conversation is replaced once", async () => {
+  delete (globalThis as { __ccDirectLineEndpoint?: string }).__ccDirectLineEndpoint;
+  await assert.rejects(copilotReply(input, secret, userId, options(directLine("\u200B\u2060", { region: "europe" }).fetcher)), hasCode("COPILOT_INVALID_RESPONSE"));
+  const line = directLine("Weiter geht's.", { region: "europe" });
+  const first = await copilotReply(input, secret, userId, options(line.fetcher));
+  // Microsoft no longer accepts the old conversation (e.g. secret regenerated): exactly one fresh start.
+  line.conversations.delete("conv-1");
+  const next = await copilotReply({ ...input, conversation: first.conversation }, secret, userId, options(line.fetcher));
+  assert.equal(next.text, "Weiter geht's.");
+  assert.equal(line.calls.filter((call) => call.method === "POST" && call.url.endsWith("/conversations")).length, 2);
+});
+
+test("the route's deadline shortens the budget, so storage work before the call counts too", async () => {
+  const line = directLine("x", { silent: true, region: "europe" });
+  const startedAt = clock;
+  await assert.rejects(copilotReply(input, secret, userId, { ...options(line.fetcher), deadline: clock + 5_000 }), hasCode("COPILOT_TIMEOUT"));
+  assert.ok(clock - startedAt <= 5_000, `took ${clock - startedAt} ms`);
+});

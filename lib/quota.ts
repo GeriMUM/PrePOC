@@ -45,7 +45,10 @@ export class Quota {
 
   /** One coach message, counted for the account and for everyone. */
   async chat(userId: string) {
-    await this.consume("chat", userId, limits.chatPerDay, "COACH_BUDGET");
-    await this.consume("chat-total", "all", limits.chatTotalPerDay, "COACH_BUDGET");
+    // In parallel: two independent counters, one storage round trip instead of two.
+    await Promise.all([
+      this.consume("chat", userId, limits.chatPerDay, "COACH_BUDGET"),
+      this.consume("chat-total", "all", limits.chatTotalPerDay, "COACH_BUDGET"),
+    ]);
   }
 }
