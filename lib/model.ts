@@ -56,7 +56,8 @@ export type IdeaFields = z.infer<typeof ideaFieldsSchema>;
 export type SaveIdea = z.infer<typeof saveIdeaSchema>;
 export type IdeaRecord = z.infer<typeof ideaRecordSchema>;
 export type CommentRecord = z.infer<typeof commentRecordSchema>;
-export type Comment = Omit<CommentRecord, "authorId">;
+/** What browsers see: no account id, but whether the viewer wrote the comment (and may delete it). */
+export type Comment = Omit<CommentRecord, "authorId"> & { mine: boolean };
 /**
  * What browsers see: an anonymous like count, whether the viewer liked or owns the idea, and the
  * storage version only for the viewer's own drafts (published ideas never change through the client).

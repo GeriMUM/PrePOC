@@ -43,11 +43,11 @@ function present(record: IdeaRecord, version: string, viewerId?: string): Idea {
   };
 }
 
-function presentComment(record: CommentRecord): Comment {
-  const { authorId: _authorId, ...comment } = record;
-  void _authorId;
-  return comment;
+function presentComment(record: CommentRecord, viewerId?: string): Comment {
+  const { authorId, ...comment } = record;
+  return { ...comment, mine: Boolean(viewerId) && authorId === viewerId };
 }
+const commentKey = (ideaId: string, commentId: string) => `comments/${ideaId}/${commentId}.json`;
 
 /** Decodes every readable record; one damaged file is logged and skipped instead of failing the whole list. */
 function decodeAll<T>(keys: string[], files: (StoredFile | null)[], parse: (file: StoredFile) => T): { key: string; file: StoredFile; record: T }[] {
@@ -105,6 +105,15 @@ export class Ideas {
     return present(record, newVersion, ownerId);
   }
 
+  /** Owners can remove their own drafts; published ideas stay, so the gallery and its conversations remain consistent. */
+  async deleteDraft(id: string, owner: User): Promise<void> {
+    const file = await this.store.read(ideaKey(id));
+    const record = file && decode(file);
+    if (!file || !record || record.ownerId !== owner.id) throw new AppError("NOT_FOUND", 404);
+    if (record.status === "published") throw new AppError("ALREADY_PUBLISHED", 409);
+    await this.store.delete(ideaKey(id));
+  }
+
   private async checkIdeaLimits(ownerId: string, creating: boolean, publish: boolean) {
     const { total, ideas } = await this.scan();
     const mine = ideas.filter(({ record }) => record.ownerId === ownerId);
@@ -151,9 +160,17 @@ export class Ideas {
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
-  async comments(id: string): Promise<Comment[]> {
+  async comments(id: string, viewerId?: string): Promise<Comment[]> {
     await this.requirePublished(id);
-    return (await this.loadComments(id)).map(presentComment);
+    return (await this.loadComments(id)).map((record) => presentComment(record, viewerId));
+  }
+
+  /** Authors can remove their own comments; everyone else gets the same answer as for a missing comment. */
+  async deleteComment(ideaId: string, commentId: string, author: User): Promise<void> {
+    const file = await this.store.read(commentKey(ideaId, commentId));
+    const record = file && commentRecordSchema.parse(JSON.parse(file.text));
+    if (!file || !record || record.authorId !== author.id) throw new AppError("NOT_FOUND", 404);
+    await this.store.delete(commentKey(ideaId, commentId));
   }
 
   async comment(id: string, raw: unknown, author: User): Promise<Comment> {
@@ -167,7 +184,7 @@ export class Ideas {
     const comment: CommentRecord = {
       ...parsed.data, author: author.name, authorId: author.id, id: randomUUID(), ideaId: id, createdAt: new Date().toISOString(),
     };
-    await this.store.write(`comments/${id}/${comment.id}.json`, JSON.stringify(comment));
-    return presentComment(comment);
+    await this.store.write(commentKey(id, comment.id), JSON.stringify(comment));
+    return presentComment(comment, author.id);
   }
 }

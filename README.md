@@ -10,19 +10,22 @@ two main pages, JSON files, no database, and Microsoft Entra ID sign-in.
   architecture answers are required.
 - Everything requires signing in with a company Microsoft account. The author
   name on ideas and comments comes from that sign-in and cannot be typed or changed.
-- Save incomplete drafts at any time; they belong to your account, on any device.
-  Publishing requires only a title and problem description.
+- Save incomplete drafts at any time; they belong to your account, on any device,
+  and you can delete them again. Publishing requires only a title and problem
+  description.
   The submission form contains only these fields and the event selector; there
   is no optional-details section. Existing additional details remain preserved
   in saved records.
-- **Gallery (`/ideas`):** published ideas, event filtering, text search, idea
-  details, and comments.
+- **Gallery (`/ideas`):** published ideas, event filtering, text search, sorting by
+  anonymous likes, idea details with shareable links, comments (authors can delete
+  their own), and a CSV export of the ideas currently listed, e.g. for the jury.
 - English/German interface switching, remembered with a cookie.
 - Events: `copilot&coffe vol 1` and `copilot & coffe vol 2`.
 - Private Vercel Blob JSON storage in deployment; local JSON files for development.
 
 No sample submissions are inserted into real storage. Published ideas are
-read-only in this MVP. Comments cannot be edited or deleted through the UI.
+read-only in this MVP and cannot be deleted; comments can be deleted only by
+their author.
 Interface switching does not translate employees' submitted content.
 Page navigation uses full document loads so the browser can warn about unsaved
 draft changes before leaving the workshop.

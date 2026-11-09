@@ -17,7 +17,7 @@ export function Workshop({ coachConfigured, userName }: { coachConfigured: boole
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState<"saved" | "publishedNotice" | null>(null);
+  const [notice, setNotice] = useState<"saved" | "publishedNotice" | "draftDeleted" | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [conversationKey, setConversationKey] = useState(0);
   const [coachActive, setCoachActive] = useState(false);
@@ -68,6 +68,17 @@ export function Workshop({ coachConfigured, userName }: { coachConfigured: boole
       setIdeas((previous) => [saved, ...previous.filter((idea) => idea.id !== saved.id)]);
       setDirty(false); setNotice(publish ? "publishedNotice" : "saved"); setConfirm(false);
     } catch (error) { setError(errorCode(error)); setConfirm(false); }
+    finally { setBusy(false); saving.current = false; }
+  }
+  async function remove() {
+    if (!current || saving.current || !window.confirm(t.deleteDraftConfirm)) return;
+    saving.current = true; setBusy(true); setError(""); setNotice(null);
+    try {
+      await request(`/api/ideas/${current.id}`, { method: "DELETE" });
+      setIdeas((previous) => previous.filter((idea) => idea.id !== current.id));
+      setFields(emptyIdea(userName)); setCurrent(null); setDirty(false); setHasConversation(false);
+      setConversationKey((value) => value + 1); setNotice("draftDeleted");
+    } catch (error) { setError(errorCode(error)); }
     finally { setBusy(false); saving.current = false; }
   }
   function apply(summary: IdeaSummary) {
@@ -123,6 +134,7 @@ export function Workshop({ coachConfigured, userName }: { coachConfigured: boole
         </div>
         <div className="editor-actions">
           {readonly ? <p>{t.readonly} <a href={current ? `/ideas/${current.id}` : "/ideas"}>{t.gallery} →</a></p> : <>
+            {current && <button className="button secondary delete-draft" disabled={busy || !ready} onClick={remove}>{t.deleteDraft}</button>}
             <button className="button secondary" disabled={busy || !ready} onClick={() => save(false)}>{busy ? t.saving : t.save}</button>
             <button className="button primary" disabled={busy || !ready || coachActive} onClick={() => {
               if (!publishable(fields)) { setError("INCOMPLETE_IDEA"); return; }

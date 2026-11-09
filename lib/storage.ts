@@ -3,7 +3,7 @@ import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/pro
 import path from "node:path";
 import {
   BlobPreconditionFailedError, BlobServiceNotAvailable, BlobServiceRateLimited,
-  get, list, put,
+  del, get, list, put,
 } from "@vercel/blob";
 import { AppError } from "./errors";
 
@@ -12,6 +12,8 @@ export interface JsonStore {
   read(key: string): Promise<StoredFile | null>;
   write(key: string, text: string, version?: string): Promise<string>;
   keys(prefix: string): Promise<string[]>;
+  /** Removes a file; a missing file is not an error. */
+  delete(key: string): Promise<void>;
 }
 
 const locks = new Map<string, Promise<void>>();
@@ -79,6 +81,14 @@ export class FileStore implements JsonStore {
     }
   }
 
+  async delete(key: string): Promise<void> {
+    try {
+      await unlink(this.resolve(key));
+    } catch (error) {
+      if (!isMissing(error)) throw error;
+    }
+  }
+
   async keys(prefix: string): Promise<string[]> {
     const directory = this.resolve(prefix);
     try {
@@ -125,6 +135,14 @@ export class BlobStore implements JsonStore {
         ...(version !== undefined ? { ifMatch: version } : {}),
       });
       return result.etag;
+    } catch (error) {
+      translate(error);
+    }
+  }
+
+  async delete(key: string): Promise<void> {
+    try {
+      await del(validKey(key));
     } catch (error) {
       translate(error);
     }

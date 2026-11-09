@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { body } from "../lib/api";
+import { body, sameOrigin } from "../lib/api";
 import { AppError } from "../lib/errors";
 
 const hasCode = (code: string) => (error: unknown) => error instanceof AppError && error.code === code;
@@ -14,6 +14,13 @@ function post(text: string, extra: Record<string, string> = {}) {
 
 test("JSON body accepts the browser host even when Next internally normalizes localhost", async () => {
   assert.deepEqual(await body(post('{"title":"Test"}')), { title: "Test" });
+});
+
+test("bodiless requests such as DELETE still need a matching Origin", () => {
+  const remove = (origin?: string) => new Request("http://localhost:3210/api/ideas/x", { method: "DELETE", headers: { host: "localhost:3210", ...(origin ? { origin } : {}) } });
+  sameOrigin(remove("http://localhost:3210"));
+  assert.throws(() => sameOrigin(remove("https://other.example")), hasCode("INVALID_ORIGIN"));
+  assert.throws(() => sameOrigin(remove()), hasCode("INVALID_ORIGIN"));
 });
 
 test("JSON body rejects cross-origin requests, bad JSON, wrong content type, and excess size", async () => {

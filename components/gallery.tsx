@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { ideasCsv } from "../lib/export";
 import { events, type Comment, type Idea } from "../lib/model";
 import { errorMessage } from "../lib/i18n";
 import { errorCode, formatDate, request, usePlatform } from "./platform";
@@ -56,6 +57,17 @@ export function Gallery({ initialId = "" }: { initialId?: string }) {
     ideasRef.current = ideasRef.current.map((existing) => existing.id === idea.id ? idea : existing);
     setIdeas(ideasRef.current); setSelected(idea);
   }
+  function exportCsv() {
+    const csv = ideasCsv(visible, location.origin, {
+      title: t.title, author: t.authorHeading, event: t.event, likes: t.likes, publishedOn: t.publishedOn, link: t.link,
+      problem: t.problemHeading, audience: t.audienceHeading, solution: t.solutionHeading, approach: t.approachHeading, impact: t.impactHeading,
+    });
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url; anchor.download = `copilot-coffee-ideas-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
   const visible = ideas.filter((idea) => (!eventId || idea.eventId === eventId) &&
     `${idea.title} ${idea.author} ${idea.problem} ${idea.solution}`.normalize("NFC").toLocaleLowerCase(language).includes(query.normalize("NFC").trim().toLocaleLowerCase(language)))
     .sort((a, b) => sort === "popular" ? b.likes - a.likes || b.updatedAt.localeCompare(a.updatedAt) : 0);
@@ -71,6 +83,7 @@ export function Gallery({ initialId = "" }: { initialId?: string }) {
       <label><span className="sr-only">{t.sortLabel}</span><select value={sort} onChange={(event) => setSort(event.target.value === "popular" ? "popular" : "newest")}>
         <option value="newest">{t.sortNewest}</option><option value="popular">{t.sortPopular}</option></select></label>
       <button className="button secondary" onClick={load}>{t.refresh}</button>
+      <button className="button secondary" onClick={exportCsv} disabled={!visible.length}>{t.exportCsv}</button>
     </div>
     <p className="gallery-count">{visible.length} {visible.length === 1 ? t.ideaCountOne : t.ideaCount}</p>
     {missing && <div role="alert" className="alert error">{errorMessage("NOT_FOUND", language)}</div>}
@@ -122,6 +135,15 @@ function IdeaDetail({ idea, onClose, onChange }: { idea: Idea; onClose: () => vo
     } catch (error) { setLikeError(errorCode(error)); }
     finally { setLikeBusy(false); }
   }
+  async function removeComment(id: string) {
+    if (!window.confirm(t.deleteCommentConfirm)) return;
+    setBusy(true); setError(""); setPosted(false);
+    try {
+      await request(`/api/ideas/${idea.id}/comments/${id}`, { method: "DELETE" });
+      setComments((previous) => previous.filter((comment) => comment.id !== id));
+    } catch (error) { setError(errorCode(error)); }
+    finally { setBusy(false); }
+  }
   async function copyLink() {
     const url = `${location.origin}/ideas/${idea.id}`;
     try { await navigator.clipboard.writeText(url); setCopied(true); }
@@ -141,7 +163,8 @@ function IdeaDetail({ idea, onClose, onChange }: { idea: Idea; onClose: () => vo
     <section className="comments-section"><h3>{t.comments} <span>({comments.length})</span></h3>
       {!ready && !error && <p role="status">{t.loading}</p>}
       {ready && !comments.length && <p className="microcopy">{t.noComments}</p>}
-      <ol className="comments">{comments.map((comment) => <li key={comment.id}><div><strong>{comment.author}</strong><time dateTime={comment.createdAt}>{formatDate(comment.createdAt, language)}</time></div><p>{comment.text}</p></li>)}</ol>
+      <ol className="comments">{comments.map((comment) => <li key={comment.id}><div><strong>{comment.author}</strong><time dateTime={comment.createdAt}>{formatDate(comment.createdAt, language)}</time></div><p>{comment.text}</p>
+        {comment.mine && <button type="button" className="text-button delete-comment" disabled={busy} onClick={() => removeComment(comment.id)}>{t.deleteComment}</button>}</li>)}</ol>
       {error && <div role="alert" className="alert error">{errorMessage(error, language)}{!ready && <button className="text-button" onClick={load}>{t.retry}</button>}</div>}
       {posted && <p className="alert success" role="status">{t.commentPosted}</p>}
       <form onSubmit={submit}>

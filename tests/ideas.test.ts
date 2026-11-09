@@ -254,6 +254,39 @@ test("one damaged record is skipped instead of taking down the gallery or a conv
   } finally { await cleanup(); }
 });
 
+test("owners can delete their own drafts, but nobody can delete published ideas or others' drafts", async () => {
+  const { store, ideas, cleanup } = await setup();
+  try {
+    const draft = await ideas.save(input, owner);
+    const published = await ideas.save({ ...input, publish: true }, owner);
+    await assert.rejects(ideas.deleteDraft(draft.id, other), hasCode("NOT_FOUND"));
+    await assert.rejects(ideas.deleteDraft(published.id, owner), hasCode("ALREADY_PUBLISHED"));
+    await assert.rejects(ideas.deleteDraft(randomUUID(), owner), hasCode("NOT_FOUND"));
+    await ideas.deleteDraft(draft.id, owner);
+    assert.deepEqual(await ideas.all(owner.id).then((mine) => mine.map((idea) => idea.id)), [published.id]);
+    assert.equal(await store.read(`ideas/${draft.id}.json`), null);
+    await assert.rejects(ideas.deleteDraft(draft.id, owner), hasCode("NOT_FOUND"));
+    await store.delete(`ideas/${draft.id}.json`);
+  } finally { await cleanup(); }
+});
+
+test("authors can delete their own comments and see which ones are theirs", async () => {
+  const { store, ideas, cleanup } = await setup();
+  try {
+    const published = await ideas.save({ ...input, publish: true }, owner);
+    const mine = await ideas.comment(published.id, { text: "Mine" }, other);
+    const theirs = await ideas.comment(published.id, { text: "Theirs" }, owner);
+    assert.equal(mine.mine, true);
+    assert.deepEqual((await ideas.comments(published.id, other.id)).map((comment) => [comment.text, comment.mine]), [["Mine", true], ["Theirs", false]]);
+    assert.ok((await ideas.comments(published.id)).every((comment) => !comment.mine));
+    await assert.rejects(ideas.deleteComment(published.id, theirs.id, other), hasCode("NOT_FOUND"));
+    await assert.rejects(ideas.deleteComment(randomUUID(), mine.id, other), hasCode("NOT_FOUND"));
+    await ideas.deleteComment(published.id, mine.id, other);
+    assert.deepEqual((await ideas.comments(published.id)).map((comment) => comment.text), ["Theirs"]);
+    assert.equal(await store.read(`comments/${published.id}/${mine.id}.json`), null);
+  } finally { await cleanup(); }
+});
+
 test("storage rejects path traversal and create collisions", async () => {
   const { store, cleanup } = await setup();
   try {

@@ -16,8 +16,8 @@ async function ideaId(context: { params: Promise<{ id: string }> }) {
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   return api(async () => {
-    await session();
-    return new Ideas(storage()).comments(await ideaId(context));
+    const user = await session();
+    return new Ideas(storage()).comments(await ideaId(context), user.id);
   });
 }
 

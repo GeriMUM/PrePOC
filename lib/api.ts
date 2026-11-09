@@ -14,10 +14,15 @@ export async function api(run: () => Promise<unknown>) {
   }
 }
 
-export async function body(request: Request, maxBytes = 32_000): Promise<unknown> {
+/** Browsers send Origin on every non-GET request; it must name this site (CSRF guard). */
+export function sameOrigin(request: Request) {
   const origin = request.headers.get("origin");
   const expectedOrigin = `${new URL(request.url).protocol}//${request.headers.get("host") ?? new URL(request.url).host}`;
   if (!origin || origin !== expectedOrigin) throw new AppError("INVALID_ORIGIN", 403);
+}
+
+export async function body(request: Request, maxBytes = 32_000): Promise<unknown> {
+  sameOrigin(request);
   if (!request.headers.get("content-type")?.startsWith("application/json")) throw new AppError("INVALID_INPUT");
   const reader = request.body?.getReader();
   if (!reader) throw new AppError("INVALID_INPUT");
