@@ -10,10 +10,10 @@ type Message = {
   id: string; role: "user" | "model"; text: string; content: string;
   summary?: IdeaSummary; applied?: boolean;
 };
-type Reply = { content: string; text: string; summary?: IdeaSummary; invalidSummary?: boolean };
+type Reply = { content: string; text: string; summary?: IdeaSummary; invalidSummary?: boolean; conversation?: string };
 
-export function Coach({ fields, onApply, disabled, onActiveChange, configured }: {
-  fields: IdeaFields; onApply: (summary: IdeaSummary) => void; disabled: boolean; onActiveChange: (active: boolean) => void; configured: boolean;
+export function Coach({ fields, onApply, disabled, onActiveChange, configured, name }: {
+  fields: IdeaFields; onApply: (summary: IdeaSummary) => void; disabled: boolean; onActiveChange: (active: boolean) => void; configured: boolean; name: string;
 }) {
   const { language, t } = usePlatform();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -23,6 +23,8 @@ export function Coach({ fields, onApply, disabled, onActiveChange, configured }:
   const active = useRef(true);
   const inFlight = useRef(false);
   const controller = useRef<AbortController | null>(null);
+  // Signed by the server: lets a Copilot agent continue the same conversation; opaque to us.
+  const conversation = useRef<string | undefined>(undefined);
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
     active.current = true;
@@ -44,9 +46,11 @@ export function Coach({ fields, onApply, disabled, onActiveChange, configured }:
         body: JSON.stringify({
           language, fields: { title: fields.title, problem: fields.problem },
           messages: coachHistory(messages.map((entry) => ({ role: entry.role, text: entry.content })), message),
+          ...(conversation.current ? { conversation: conversation.current } : {}),
         }),
       });
       if (!active.current) return;
+      conversation.current = reply.conversation;
       setMessages((previous) => [...previous,
         { id: crypto.randomUUID(), role: "user", text: message, content: message },
         { id: crypto.randomUUID(), role: "model", ...reply },
@@ -54,7 +58,7 @@ export function Coach({ fields, onApply, disabled, onActiveChange, configured }:
       setText("");
       setError(reply.invalidSummary ? "COACH_INVALID_SUMMARY" : "");
     } catch (error) {
-      if (active.current) setError(abort.signal.aborted ? "GEMINI_TIMEOUT" : errorCode(error));
+      if (active.current) setError(abort.signal.aborted ? "COACH_TIMEOUT" : errorCode(error));
     } finally {
       clearTimeout(timeout);
       inFlight.current = false;
@@ -63,7 +67,7 @@ export function Coach({ fields, onApply, disabled, onActiveChange, configured }:
   }
 
   return <section className="coach-panel conversation-panel" aria-label={t.coach}>
-    <div className="coach-head"><span className="coach-avatar" aria-hidden="true">AI</span><div><h2>{t.coach}</h2><p>{t.conversationSubtitle}</p></div><span className="pill">{t.coachBadge}</span></div>
+    <div className="coach-head"><span className="coach-avatar" aria-hidden="true">AI</span><div><h2>{t.coach}</h2><p>{t.conversationSubtitle}</p></div><span className="pill">{name}</span></div>
     <div className="chat-log" role="log" aria-label={t.chatHistory} aria-live="polite">
       {!messages.length && <div className="chat-welcome"><span className="eyebrow">{t.startHere}</span><h3>{t.coachWelcome}</h3><p>{t.chatWelcome}</p>
         <button className="starter-chip" disabled={disabled || busy || !configured} onClick={() => setText(t.timeBookingStarter)}>{t.timeBookingStarter}</button></div>}

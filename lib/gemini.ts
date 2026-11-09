@@ -20,6 +20,8 @@ export const chatInputSchema = z.object({
     "Expected alternating turns ending with a user message")
     .refine((messages) => messages.reduce((length, message) => length + message.text.length, 0) <= 10_000)
     .refine((messages) => messages.filter((message) => message.role === "user").every((message) => message.text.length <= 4000)),
+  // Our signed Copilot conversation token from an earlier reply; ignored by Gemini.
+  conversation: z.string().max(4000).optional(),
 }).strict();
 
 const responseSchema = z.object({

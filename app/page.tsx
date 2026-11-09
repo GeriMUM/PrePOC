@@ -1,5 +1,5 @@
 import { Workshop } from "../components/workshop";
-import { geminiApiKey } from "../lib/gemini-config";
+import { coachName, coachProvider } from "../lib/coach-config";
 import { idSchema } from "../lib/model";
 import { requireUser } from "../lib/session";
 
@@ -8,5 +8,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ i
   const { idea } = await searchParams;
   const initialId = typeof idea === "string" && idSchema.safeParse(idea).success ? idea : "";
   const user = await requireUser(initialId ? `/?idea=${initialId}` : "/");
-  return <Workshop coachConfigured={Boolean(geminiApiKey())} userName={user.name} initialId={initialId} />;
+  const provider = coachProvider();
+  return <Workshop coachConfigured={provider !== null} coachName={coachName(provider)} userName={user.name} initialId={initialId} />;
 }

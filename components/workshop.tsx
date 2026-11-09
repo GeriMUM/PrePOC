@@ -8,7 +8,7 @@ import { Coach } from "./coach";
 import { Modal } from "./modal";
 import { errorCode, request, usePlatform } from "./platform";
 
-export function Workshop({ coachConfigured, userName, initialId = "" }: { coachConfigured: boolean; userName: string; initialId?: string }) {
+export function Workshop({ coachConfigured, coachName, userName, initialId = "" }: { coachConfigured: boolean; coachName: string; userName: string; initialId?: string }) {
   const { language, t } = usePlatform();
   const [fields, setFields] = useState<IdeaFields>(() => emptyIdea(userName));
   const [current, setCurrent] = useState<Idea | null>(null);
@@ -115,7 +115,7 @@ export function Workshop({ coachConfigured, userName, initialId = "" }: { coachC
         {option === "coach" ? t.viewCoach : t.viewIdea}</button>)}
     </div>
     <div className={`conversation-layout show-${view}`}>
-      <Coach key={conversationKey} configured={coachConfigured} fields={fields} disabled={busy || !ready}
+      <Coach key={conversationKey} configured={coachConfigured} name={coachName} fields={fields} disabled={busy || !ready}
         onApply={apply} onActiveChange={(active) => { setCoachActive(active); if (active) setHasConversation(true); }} />
       <section className="editor-panel summary-panel" aria-label={t.ideaSummary}>
         <div className="editor-top"><span className="pill">{published ? t.published : t.draft}</span><span className="save-status">{dirty ? <><i />{t.unsaved}</> : current ? t.savedLabel : ""}</span></div>

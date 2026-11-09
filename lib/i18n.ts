@@ -32,7 +32,7 @@ const en = {
   unsaved: "Unsaved changes", savedLabel: "All changes saved",
   required: "Add an idea title and a problem description before publishing. Architecture and other details are optional.",
   coach: "Your thinking partner",
-  coachBadge: "Gemini", coachWelcome: "Start with a task that annoys you.",
+  coachWelcome: "Start with a task that annoys you.",
   starter1: "How could AI help with this task, and where should a human stay in control?",
   starter2: "Would an agent, an assistant, or a simple automation suit this idea—and why?",
   starter3: "What is the smallest useful version we could try at a hackathon?",
@@ -62,7 +62,7 @@ const en = {
   optional: "optional",
   approachOptionalPlaceholder: "No technical answer needed. The coach can suggest a simple approach.",
   leaveConversation: "Leave this idea? Unsaved summary edits and this chat conversation will be lost.",
-  agentSetup: "Gemini is not configured yet. The organizer must set GEMINI_API_KEY on the server and restart or redeploy. Saving and publishing work independently.",
+  agentSetup: "The coach is not configured yet. The organizer must set COPILOT_DIRECT_LINE_SECRET (Copilot Studio agent) or GEMINI_API_KEY on the server and redeploy. Saving and publishing work independently.",
 };
 
 const de: Record<keyof typeof en, string> = {
@@ -97,7 +97,7 @@ const de: Record<keyof typeof en, string> = {
   unsaved: "Ungespeicherte Änderungen", savedLabel: "Alle Änderungen gespeichert",
   required: "Ergänze einen Ideentitel und eine Problembeschreibung. Architektur und weitere Angaben sind optional.",
   coach: "Dein Denkpartner",
-  coachBadge: "Gemini", coachWelcome: "Beginne mit einer Aufgabe, die dich nervt.",
+  coachWelcome: "Beginne mit einer Aufgabe, die dich nervt.",
   starter1: "Wie könnte KI bei dieser Aufgabe helfen, und wo sollte der Mensch die Kontrolle behalten?",
   starter2: "Passt ein Agent, ein Assistent oder eine einfache Automatisierung zu dieser Idee – und warum?",
   starter3: "Was ist die kleinste nützliche Version, die wir bei einem Hackathon ausprobieren könnten?",
@@ -127,7 +127,7 @@ const de: Record<keyof typeof en, string> = {
   optional: "optional",
   approachOptionalPlaceholder: "Kein technisches Wissen nötig. Der Coach kann einen einfachen Ansatz vorschlagen.",
   leaveConversation: "Diese Idee verlassen? Ungespeicherte Änderungen an der Übersicht und dieses Chatgespräch gehen verloren.",
-  agentSetup: "Gemini ist noch nicht konfiguriert. Die Organisation muss GEMINI_API_KEY auf dem Server setzen und neu starten oder deployen. Speichern und Veröffentlichen funktionieren unabhängig davon.",
+  agentSetup: "Der Coach ist noch nicht konfiguriert. Die Organisation muss COPILOT_DIRECT_LINE_SECRET (Copilot-Studio-Agent) oder GEMINI_API_KEY auf dem Server setzen und neu deployen. Speichern und Veröffentlichen funktionieren unabhängig davon.",
 };
 
 export const messages = { en, de };
@@ -135,7 +135,13 @@ export type Messages = typeof en;
 
 const errors: Record<Language, Record<string, string>> = {
   en: {
-    GEMINI_NOT_CONFIGURED: en.agentSetup,
+    GEMINI_NOT_CONFIGURED: en.agentSetup, COACH_NOT_CONFIGURED: en.agentSetup,
+    COACH_TIMEOUT: "The coach took too long to reply. Your message is preserved; please try again.",
+    COPILOT_REJECTED: "The Copilot agent refused the connection. The organizer should check the Direct Line secret and that the agent is published.",
+    COPILOT_QUOTA: "The Copilot agent's capacity is used up for now. Please try again later; your message is preserved.",
+    COPILOT_TIMEOUT: "The Copilot agent did not answer in time. Your message is preserved; please try again.",
+    COPILOT_UNAVAILABLE: "The Copilot agent is currently unreachable. Your message is preserved; please try again later.",
+    COPILOT_INVALID_RESPONSE: "The Copilot agent returned no usable reply. Your message is preserved; please try again.",
     GEMINI_KEY_INVALID: "Google rejected the API key as invalid or expired. Replace GEMINI_API_KEY with a Gemini API key from Google AI Studio, then redeploy. Do not share the key.",
     GEMINI_API_DISABLED: "The Generative Language API is disabled for this key's Google Cloud project. Enable it in that project, then retry.",
     GEMINI_MODEL_UNAVAILABLE: "Google could not find the configured Gemini model for this API key. Check GEMINI_MODEL and model availability in Google AI Studio.",
@@ -177,7 +183,13 @@ const errors: Record<Language, Record<string, string>> = {
     COACH_INVALID_SUMMARY: "The coach returned an invalid summary. Nothing was applied. Ask it to generate a corrected idea summary.",
   },
   de: {
-    GEMINI_NOT_CONFIGURED: de.agentSetup,
+    GEMINI_NOT_CONFIGURED: de.agentSetup, COACH_NOT_CONFIGURED: de.agentSetup,
+    COACH_TIMEOUT: "Der Coach hat zu lange gebraucht. Deine Nachricht bleibt erhalten; bitte versuche es erneut.",
+    COPILOT_REJECTED: "Der Copilot-Agent hat die Verbindung abgelehnt. Die Organisation sollte das Direct-Line-Secret prüfen und ob der Agent veröffentlicht ist.",
+    COPILOT_QUOTA: "Die Kapazität des Copilot-Agenten ist vorerst aufgebraucht. Bitte versuche es später erneut; deine Nachricht bleibt erhalten.",
+    COPILOT_TIMEOUT: "Der Copilot-Agent hat nicht rechtzeitig geantwortet. Deine Nachricht bleibt erhalten; bitte versuche es erneut.",
+    COPILOT_UNAVAILABLE: "Der Copilot-Agent ist gerade nicht erreichbar. Deine Nachricht bleibt erhalten; versuche es später erneut.",
+    COPILOT_INVALID_RESPONSE: "Der Copilot-Agent hat keine nutzbare Antwort geliefert. Deine Nachricht bleibt erhalten; bitte versuche es erneut.",
     GEMINI_KEY_INVALID: "Google hat den API-Key als ungültig oder abgelaufen abgelehnt. Ersetze GEMINI_API_KEY durch einen Gemini-Key aus Google AI Studio und deploye neu. Den Key nicht teilen.",
     GEMINI_API_DISABLED: "Die Generative Language API ist im Google-Cloud-Projekt dieses Keys deaktiviert. Aktiviere sie dort und versuche es erneut.",
     GEMINI_MODEL_UNAVAILABLE: "Google konnte das konfigurierte Gemini-Modell für diesen API-Key nicht finden. Prüfe GEMINI_MODEL und die Modellverfügbarkeit in Google AI Studio.",
