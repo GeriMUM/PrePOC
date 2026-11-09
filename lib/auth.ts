@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { AppError } from "./errors";
 import type { User } from "./session";
+import { clean, truncate } from "./text";
 import { equal, sign, verify } from "./tokens";
 
 /** Single-tenant Microsoft Entra ID sign-in (OpenID Connect authorization code flow with PKCE). */
@@ -25,9 +26,9 @@ export function entraConfig(env: Env = process.env): EntraConfig | null {
   return { tenantId, clientId, clientSecret };
 }
 
-/** Without Entra configuration, local development signs in as a fixed test user. Never on Vercel or in production. */
+/** The fixed local test user needs an explicit opt-in (DEV_LOGIN=1) and is never available on Vercel or in production. */
 export function devLoginAllowed(env: Env = process.env) {
-  return env.NODE_ENV !== "production" && !env.VERCEL;
+  return env.NODE_ENV !== "production" && !env.VERCEL && env.DEV_LOGIN === "1";
 }
 
 export function safeReturnTo(value: string | null | undefined): string {
@@ -45,6 +46,8 @@ export function startLogin(config: EntraConfig, redirectUri: string, returnTo: s
     client_id: config.clientId, response_type: "code", response_mode: "query", redirect_uri: redirectUri,
     scope: "openid profile", state, nonce,
     code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256",
+    // On a shared computer the next person sees which account they are about to use instead of silently becoming the previous one.
+    prompt: "select_account",
   }).toString();
   const flow = sign("flow", { state, nonce, verifier, returnTo: safeReturnTo(returnTo), exp: Math.floor(now / 1000) + flowMaxAge });
   return { url: url.toString(), flow };
@@ -61,9 +64,16 @@ function decodeClaims(idToken: string): unknown {
   try { return JSON.parse(Buffer.from(payload ?? "", "base64url").toString("utf8")); } catch { return null; }
 }
 
+export interface FinishLoginOptions {
+  fetcher?: typeof fetch;
+  now?: number;
+  /** Runs once per login attempt before the token request, e.g. to make the flow single-use. */
+  guard?: (state: string) => Promise<void>;
+}
+
 export async function finishLogin(
   config: EntraConfig, redirectUri: string, params: URLSearchParams, flowToken: string | undefined,
-  fetcher: typeof fetch = fetch, now = Date.now(),
+  { fetcher = fetch, now = Date.now(), guard }: FinishLoginOptions = {},
 ): Promise<{ user: User; returnTo: string }> {
   const flow = flowSchema.safeParse(verify("flow", flowToken));
   if (!flow.success || flow.data.exp <= now / 1000) throw new AppError("AUTH_FLOW_EXPIRED");
@@ -72,6 +82,7 @@ export async function finishLogin(
   if (providerError) throw new AppError(providerError === "access_denied" ? "AUTH_DENIED" : "AUTH_FAILED", 403);
   const code = params.get("code");
   if (!code) throw new AppError("AUTH_FAILED");
+  await guard?.(flow.data.state);
 
   let response: Response;
   try {
@@ -103,7 +114,8 @@ export async function finishLogin(
     !equal(nonce, flow.data.nonce) || exp <= now / 1000 - 300) {
     throw new AppError("AUTH_FAILED", 403);
   }
-  const displayName = (name?.trim() || preferred_username?.trim() || "").slice(0, 80);
+  // The display name becomes a public byline: no invisible or direction-changing characters, no split emoji.
+  const displayName = truncate(clean(name ?? "") || clean(preferred_username ?? ""), 80);
   if (!displayName) throw new AppError("AUTH_FAILED", 403);
   return { user: { id: oid.toLowerCase(), name: displayName }, returnTo: flow.data.returnTo };
 }

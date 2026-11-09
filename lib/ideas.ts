@@ -1,22 +1,45 @@
 import { randomUUID } from "node:crypto";
 import { AppError } from "./errors";
 import {
-  commentInputSchema, commentRecordSchema, ideaRecordSchema, publishable, saveIdeaSchema, likeInputSchema,
+  commentInputSchema, commentRecordSchema, ideaRecordSchema, likeInputSchema, maxLikes, publishable, saveIdeaSchema,
   type Comment, type CommentRecord, type Idea, type IdeaRecord,
 } from "./model";
 import type { User } from "./session";
-import type { JsonStore, StoredFile } from "./storage";
+import { readAll, type JsonStore, type StoredFile } from "./storage";
+import { digest } from "./tokens";
+
+/** Caps that keep one account from filling the store or a conversation. */
+export interface IdeaLimits {
+  /** Drafts per account. */ drafts: number;
+  /** Published ideas per account. */ published: number;
+  /** Idea files in the whole store. */ total: number;
+  /** Comments per idea. */ comments: number;
+  /** Comments per account on one idea. */ commentsPerAuthor: number;
+  /** Likes per idea. */ likes: number;
+}
+export const defaultLimits: IdeaLimits = { drafts: 25, published: 10, total: 2000, comments: 500, commentsPerAuthor: 30, likes: maxLikes };
 
 const ideaKey = (id: string) => `ideas/${id}.json`;
+/** Likes are stored as keyed hashes of idea id and account id: one like per person, no account ids in the store. */
+const likeToken = (ideaId: string, userId: string) => digest("like", `${ideaId}:${userId}`);
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 function decode(file: StoredFile): IdeaRecord {
   return ideaRecordSchema.parse(JSON.parse(file.text));
 }
+
 function present(record: IdeaRecord, version: string, viewerId?: string): Idea {
   const { ownerId, likes, ...idea } = record;
+  const mine = Boolean(viewerId) && ownerId === viewerId;
   return {
-    ...idea, version, likes: likes.length,
-    liked: Boolean(viewerId) && likes.includes(viewerId ?? ""),
-    mine: Boolean(viewerId) && ownerId === viewerId,
+    ...idea,
+    // The storage version is a hash of the stored record, which holds the hidden like list, so it is
+    // only shared with the owner of a draft: published ideas never change through the client.
+    ...(mine && record.status === "draft" ? { version } : {}),
+    likes: likes.length,
+    // Records written before likes were hashed hold raw account ids; both forms count as the viewer's like.
+    liked: Boolean(viewerId) && (likes.includes(likeToken(record.id, viewerId ?? "")) || likes.includes(viewerId ?? "")),
+    mine,
   };
 }
 
@@ -26,18 +49,31 @@ function presentComment(record: CommentRecord): Comment {
   return comment;
 }
 
+/** Decodes every readable record; one damaged file is logged and skipped instead of failing the whole list. */
+function decodeAll<T>(keys: string[], files: (StoredFile | null)[], parse: (file: StoredFile) => T): { key: string; file: StoredFile; record: T }[] {
+  const records: { key: string; file: StoredFile; record: T }[] = [];
+  files.forEach((file, index) => {
+    if (!file) return;
+    try { records.push({ key: keys[index], file, record: parse(file) }); }
+    catch (error) { console.error("Skipping unreadable record", keys[index], error instanceof Error ? error.message : error); }
+  });
+  return records;
+}
+
 export class Ideas {
-  constructor(private store: JsonStore) {}
+  constructor(private store: JsonStore, private limits: IdeaLimits = defaultLimits) {}
+
+  private async scan() {
+    const keys = await this.store.keys("ideas/");
+    return { total: keys.length, ideas: decodeAll(keys, await readAll(this.store, keys), decode) };
+  }
 
   async all(ownerId?: string, viewerId = ownerId): Promise<Idea[]> {
-    const keys = await this.store.keys("ideas/");
-    const files = await Promise.all(keys.map((key) => this.store.read(key)));
-    return files.flatMap((file) => {
-      if (!file) return [];
-      const idea = decode(file);
-      if (ownerId ? idea.ownerId !== ownerId : idea.status !== "published") return [];
-      return [present(idea, file.version, viewerId)];
-    }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const { ideas } = await this.scan();
+    return ideas
+      .filter(({ record }) => ownerId ? record.ownerId === ownerId : record.status === "published")
+      .map(({ record, file }) => present(record, file.version, viewerId))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
   async save(raw: unknown, owner: User): Promise<Idea> {
@@ -58,6 +94,7 @@ export class Ideas {
     } else if (version) {
       throw new AppError("INVALID_INPUT");
     }
+    if (!existing || publish) await this.checkIdeaLimits(ownerId, !existing, publish);
     const now = new Date().toISOString();
     const record: IdeaRecord = {
       ...fields, id: existing?.id ?? randomUUID(), ownerId,
@@ -68,26 +105,38 @@ export class Ideas {
     return present(record, newVersion, ownerId);
   }
 
-  /** Adds or removes the user's like. Retries when simultaneous clicks race on the same idea. */
+  private async checkIdeaLimits(ownerId: string, creating: boolean, publish: boolean) {
+    const { total, ideas } = await this.scan();
+    const mine = ideas.filter(({ record }) => record.ownerId === ownerId);
+    const count = (status: IdeaRecord["status"]) => mine.filter(({ record }) => record.status === status).length;
+    if (creating && (total >= this.limits.total || (!publish && count("draft") >= this.limits.drafts))) throw new AppError("IDEA_LIMIT", 429);
+    if (publish && count("published") >= this.limits.published) throw new AppError("IDEA_LIMIT", 429);
+  }
+
+  /** Adds or removes the user's like. Retries with backoff when simultaneous clicks race on the same idea. */
   async like(id: string, raw: unknown, user: User): Promise<Idea> {
     const parsed = likeInputSchema.safeParse(raw);
     if (!parsed.success) throw new AppError("INVALID_INPUT");
-    for (let attempt = 0; attempt < 5; attempt++) {
+    const token = likeToken(id, user.id);
+    for (let attempt = 0; attempt < 8; attempt++) {
       const file = await this.store.read(ideaKey(id));
       const record = file && decode(file);
       if (!file || !record || record.status !== "published") throw new AppError("NOT_FOUND", 404);
       if (record.ownerId === user.id) throw new AppError("OWN_IDEA");
-      const others = record.likes.filter((id) => id !== user.id);
+      // Also drops this user's raw account id from records written before likes were hashed.
+      const others = record.likes.filter((like) => like !== token && like !== user.id);
       const already = others.length !== record.likes.length;
       if (already === parsed.data.like) return present(record, file.version, user.id);
-      const next: IdeaRecord = { ...record, likes: parsed.data.like ? [...others, user.id] : others };
+      if (parsed.data.like && others.length >= this.limits.likes) throw new AppError("LIKE_LIMIT", 409);
+      const next: IdeaRecord = { ...record, likes: parsed.data.like ? [...others, token] : others };
       try {
         return present(next, await this.store.write(ideaKey(id), JSON.stringify(next), file.version), user.id);
       } catch (error) {
         if (!(error instanceof AppError && error.code === "CONFLICT")) throw error;
+        await sleep(15 + Math.random() * 60 * (attempt + 1));
       }
     }
-    throw new AppError("CONFLICT", 409);
+    throw new AppError("LIKE_BUSY", 409);
   }
 
   private async requirePublished(id: string) {
@@ -95,18 +144,26 @@ export class Ideas {
     if (!file || decode(file).status !== "published") throw new AppError("NOT_FOUND", 404);
   }
 
+  private async loadComments(id: string): Promise<CommentRecord[]> {
+    const keys = await this.store.keys(`comments/${id}/`);
+    return decodeAll(keys, await readAll(this.store, keys), (file) => commentRecordSchema.parse(JSON.parse(file.text)))
+      .map(({ record }) => record)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
   async comments(id: string): Promise<Comment[]> {
     await this.requirePublished(id);
-    const keys = await this.store.keys(`comments/${id}/`);
-    const files = await Promise.all(keys.map((key) => this.store.read(key)));
-    return files.flatMap((file) => file ? [presentComment(commentRecordSchema.parse(JSON.parse(file.text)))] : [])
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return (await this.loadComments(id)).map(presentComment);
   }
 
   async comment(id: string, raw: unknown, author: User): Promise<Comment> {
     await this.requirePublished(id);
     const parsed = commentInputSchema.safeParse(raw);
     if (!parsed.success) throw new AppError("INVALID_INPUT");
+    const existing = await this.loadComments(id);
+    const own = existing.filter((comment) => comment.authorId === author.id);
+    if (existing.length >= this.limits.comments || own.length >= this.limits.commentsPerAuthor) throw new AppError("COMMENT_LIMIT", 429);
+    if (own.at(-1)?.text === parsed.data.text) throw new AppError("COMMENT_DUPLICATE", 409);
     const comment: CommentRecord = {
       ...parsed.data, author: author.name, authorId: author.id, id: randomUUID(), ideaId: id, createdAt: new Date().toISOString(),
     };

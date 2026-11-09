@@ -57,7 +57,7 @@ export function Gallery({ initialId = "" }: { initialId?: string }) {
     setIdeas(ideasRef.current); setSelected(idea);
   }
   const visible = ideas.filter((idea) => (!eventId || idea.eventId === eventId) &&
-    `${idea.title} ${idea.author} ${idea.problem} ${idea.solution}`.toLocaleLowerCase(language).includes(query.trim().toLocaleLowerCase(language)))
+    `${idea.title} ${idea.author} ${idea.problem} ${idea.solution}`.normalize("NFC").toLocaleLowerCase(language).includes(query.normalize("NFC").trim().toLocaleLowerCase(language)))
     .sort((a, b) => sort === "popular" ? b.likes - a.likes || b.updatedAt.localeCompare(a.updatedAt) : 0);
 
   return <div className="page-shell gallery-page">
@@ -81,7 +81,7 @@ export function Gallery({ initialId = "" }: { initialId?: string }) {
       <button type="button" className="idea-card" key={idea.id} onClick={() => open(idea)} aria-label={`${t.readIdea}: ${idea.title}`}>
         <span className="card-tags"><span className="event-tag">{events.find((event) => event.id === idea.eventId)?.name}</span>{idea.mine && <span className="mine-tag">{t.mine}</span>}</span>
         <h2>{idea.title}</h2><p className="card-problem">{idea.problem}</p>
-        <span className="card-bottom"><span className="avatar" aria-hidden="true">{idea.author.slice(0, 1).toLocaleUpperCase(language)}</span><span><strong>{idea.author}</strong><small>{formatDate(idea.createdAt, language)}</small></span>
+        <span className="card-bottom"><span className="avatar" aria-hidden="true">{(Array.from(idea.author)[0] ?? "").toLocaleUpperCase(language)}</span><span><strong>{idea.author}</strong><small>{formatDate(idea.createdAt, language)}</small></span>
           <span className={`card-likes ${idea.liked ? "active" : ""}`} aria-label={`${idea.likes} ${t.likes}`}>👍 {idea.likes}</span>
           <span className="card-arrow" aria-hidden="true">→</span></span>
       </button>

@@ -47,10 +47,11 @@ test("Entra configuration requires a tenant GUID, client GUID, and secret; absen
   ]) assert.throws(() => entraConfig(env), hasCode("AUTH_INVALID_CONFIG"));
 });
 
-test("the local test login is never available in production or on Vercel", () => {
-  assert.equal(devLoginAllowed({ NODE_ENV: "development" }), true);
-  assert.equal(devLoginAllowed({ NODE_ENV: "production" }), false);
-  assert.equal(devLoginAllowed({ NODE_ENV: "development", VERCEL: "1" }), false);
+test("the local test login needs an explicit opt-in and is never available in production or on Vercel", () => {
+  assert.equal(devLoginAllowed({ NODE_ENV: "development" }), false);
+  assert.equal(devLoginAllowed({ NODE_ENV: "development", DEV_LOGIN: "1" }), true);
+  assert.equal(devLoginAllowed({ NODE_ENV: "production", DEV_LOGIN: "1" }), false);
+  assert.equal(devLoginAllowed({ NODE_ENV: "development", DEV_LOGIN: "1", VERCEL: "1" }), false);
 });
 
 test("return paths stay on this site", () => {
@@ -58,22 +59,33 @@ test("return paths stay on this site", () => {
   for (const bad of ["//evil.example", "https://evil.example", "/\\evil.example", "ideas", null]) assert.equal(safeReturnTo(bad), "/");
 });
 
-test("sign-in uses the tenant authority with PKCE and returns the verified user", async () => {
+test("sign-in uses the tenant authority with PKCE, asks which account to use, and returns the verified user", async () => {
   const { authorize, flow, params, fetcher, requests } = login();
   assert.equal(authorize.origin + authorize.pathname, `https://login.microsoftonline.com/${config.tenantId}/oauth2/v2.0/authorize`);
   assert.equal(authorize.searchParams.get("code_challenge_method"), "S256");
   assert.equal(authorize.searchParams.get("redirect_uri"), redirectUri);
-  const result = await finishLogin(config, redirectUri, params, flow, fetcher);
+  assert.equal(authorize.searchParams.get("prompt"), "select_account");
+  const guarded: string[] = [];
+  const result = await finishLogin(config, redirectUri, params, flow, { fetcher, guard: async (state) => { guarded.push(state); } });
   assert.deepEqual(result, { user: { id: oid, name: "Alex Example" }, returnTo: "/ideas" });
+  assert.deepEqual(guarded, [authorize.searchParams.get("state")]);
   assert.equal(requests[0].body.get("code_verifier")?.length, 43);
   assert.equal(requests[0].body.get("client_secret"), config.clientSecret);
 });
 
+test("a refused login attempt never reaches the token endpoint", async () => {
+  const { flow, params, fetcher, requests } = login();
+  await assert.rejects(finishLogin(config, redirectUri, params, flow, {
+    fetcher, guard: async () => { throw new AppError("AUTH_FAILED", 429); },
+  }), hasCode("AUTH_FAILED"));
+  assert.equal(requests.length, 0);
+});
+
 test("sign-in rejects tampered state, missing flow, and tokens for another app, tenant, or attempt", async () => {
   const valid = login();
-  await assert.rejects(finishLogin(config, redirectUri, new URLSearchParams({ code: "c", state: "forged" }), valid.flow, valid.fetcher), hasCode("AUTH_FAILED"));
-  await assert.rejects(finishLogin(config, redirectUri, valid.params, undefined, valid.fetcher), hasCode("AUTH_FLOW_EXPIRED"));
-  await assert.rejects(finishLogin(config, redirectUri, valid.params, sign("user", {}), valid.fetcher), hasCode("AUTH_FLOW_EXPIRED"));
+  await assert.rejects(finishLogin(config, redirectUri, new URLSearchParams({ code: "c", state: "forged" }), valid.flow, { fetcher: valid.fetcher }), hasCode("AUTH_FAILED"));
+  await assert.rejects(finishLogin(config, redirectUri, valid.params, undefined, { fetcher: valid.fetcher }), hasCode("AUTH_FLOW_EXPIRED"));
+  await assert.rejects(finishLogin(config, redirectUri, valid.params, sign("user", {}), { fetcher: valid.fetcher }), hasCode("AUTH_FLOW_EXPIRED"));
   for (const override of [
     { aud: "00000000-0000-0000-0000-000000000000" },
     { tid: "00000000-0000-0000-0000-000000000000" },
@@ -81,13 +93,25 @@ test("sign-in rejects tampered state, missing flow, and tokens for another app, 
     { nonce: "replayed" },
     { exp: 1 },
     { name: undefined },
+    { name: "​ ‮" },
   ]) {
     const attempt = login(override);
-    await assert.rejects(finishLogin(config, redirectUri, attempt.params, attempt.flow, attempt.fetcher), hasCode("AUTH_FAILED"));
+    await assert.rejects(finishLogin(config, redirectUri, attempt.params, attempt.flow, { fetcher: attempt.fetcher }), hasCode("AUTH_FAILED"));
   }
   const denied = login();
   denied.params.set("error", "access_denied");
-  await assert.rejects(finishLogin(config, redirectUri, denied.params, denied.flow, denied.fetcher), hasCode("AUTH_DENIED"));
+  await assert.rejects(finishLogin(config, redirectUri, denied.params, denied.flow, { fetcher: denied.fetcher }), hasCode("AUTH_DENIED"));
+});
+
+test("display names lose invisible and direction-changing characters and are cut without splitting emoji", async () => {
+  const name = async (value: string | undefined, preferred_username?: string) => {
+    const attempt = login({ name: value, preferred_username });
+    return (await finishLogin(config, redirectUri, attempt.params, attempt.flow, { fetcher: attempt.fetcher })).user.name;
+  };
+  assert.equal(await name("‮Alex​ Example⁦ "), "Alex Example");
+  assert.equal(await name(`${"A".repeat(79)}😀`), "A".repeat(79));
+  assert.equal(await name("😀".repeat(45)), "😀".repeat(40));
+  assert.equal(await name(undefined, "alex@example.com"), "alex@example.com");
 });
 
 test("session tokens cannot be forged, edited, reused as another token type, or used after expiry", () => {
@@ -97,6 +121,22 @@ test("session tokens cannot be forged, edited, reused as another token type, or 
   const edited = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(data, "base64url").toString()), name: "Boss" })).toString("base64url");
   assert.equal(userFromToken(`${edited}.${mac}`), null);
   assert.equal(userFromToken(sign("flow", { id: oid, name: "Alex", exp: 9e9 })), null);
-  assert.equal(userFromToken(token, Date.now() + 8 * 24 * 3600 * 1000), null);
+  assert.equal(userFromToken(token, Date.now() + 13 * 3600 * 1000), null);
   assert.equal(userFromToken(undefined), null);
+});
+
+test("real credentials without a configured session secret refuse to sign anything", () => {
+  const previous = { SESSION_SECRET: process.env.SESSION_SECRET, ENTRA_CLIENT_SECRET: process.env.ENTRA_CLIENT_SECRET };
+  try {
+    delete process.env.SESSION_SECRET;
+    process.env.ENTRA_CLIENT_SECRET = "real-looking-secret";
+    assert.throws(() => userToken({ id: oid, name: "Alex" }), hasCode("SESSION_NOT_CONFIGURED"));
+    process.env.SESSION_SECRET = "x".repeat(32);
+    assert.ok(userToken({ id: oid, name: "Alex" }));
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 });

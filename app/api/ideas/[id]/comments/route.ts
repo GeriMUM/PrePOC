@@ -2,25 +2,31 @@ import { api, body } from "../../../../../lib/api";
 import { AppError } from "../../../../../lib/errors";
 import { Ideas } from "../../../../../lib/ideas";
 import { idSchema } from "../../../../../lib/model";
+import { Quota } from "../../../../../lib/quota";
 import { session } from "../../../../../lib/session";
 import { storage } from "../../../../../lib/storage";
 
 export const dynamic = "force-dynamic";
-type Context = { params: Promise<{ id: string }> };
-async function ideaId(context: Context) {
+
+async function ideaId(context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   if (!idSchema.safeParse(id).success) throw new AppError("NOT_FOUND", 404);
   return id;
 }
-export async function GET(_request: Request, context: Context) {
+
+export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   return api(async () => {
     await session();
     return new Ideas(storage()).comments(await ideaId(context));
   });
 }
-export async function POST(request: Request, context: Context) {
+
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   return api(async () => {
     const user = await session();
-    return new Ideas(storage()).comment(await ideaId(context), await body(request), user);
+    const id = await ideaId(context);
+    const store = storage();
+    await new Quota(store).write(user.id);
+    return new Ideas(store).comment(id, await body(request), user);
   });
 }

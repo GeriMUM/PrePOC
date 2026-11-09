@@ -41,9 +41,11 @@ Copy the example only when creating a new environment file; do not overwrite
 existing storage/session settings or credentials.
 Open `http://localhost:3000`. Development defaults to JSON files in `.data`,
 which is ignored by Git. No AI, storage, or Entra credentials are needed to try the
-forms, persistence, publishing, and comments locally: without `ENTRA_*`
-variables, development signs you in as a fixed "Local Developer" test user.
-This shortcut is disabled in production builds and on Vercel.
+forms, persistence, publishing, and comments locally: with `DEV_LOGIN=1` and no
+`ENTRA_*` variables, development signs you in as a fixed "Local Developer" test
+user. This opt-in is ignored in production builds and on Vercel. The dev server
+listens on `127.0.0.1` only, and without `SESSION_SECRET` it signs sessions with
+a random key per process.
 
 ```powershell
 npm run typecheck
@@ -107,11 +109,23 @@ hosting plan. Gemini free quota is separate from hosting and storage costs.
 ```text
 ideas/<idea-uuid>.json
 comments/<idea-uuid>/<comment-uuid>.json
+usage/<yyyy-mm-dd>/<bucket>/<hash>.json   (daily counters for the limits below)
 ```
 
 All files are private. Only backend routes read or write them; browser clients
 never receive a storage token or raw Blob URL. Public gallery responses omit
-drafts and internal ownership identifiers.
+drafts, internal ownership identifiers and the storage version of published
+ideas. Likes are stored as keyed hashes of idea and account (`lib/ideas.ts`), so
+neither the files nor any response names who liked.
+
+### Limits
+
+Per account and day: 300 saves, comments and likes together, and 80 coach
+messages (1,500 for everyone). Per account: 25 drafts and 10 published ideas;
+2,000 idea files in total; 500 comments per idea and 30 per account and idea;
+5,000 likes per idea. Exceeding a limit answers HTTP 429 with a fixed error code.
+Counters are small files under `usage/` (one per account, bucket and day, keyed
+by a hash of the account id); they are not cleaned up automatically.
 
 Each idea is a single small JSON document. Updates use the Blob ETag with
 `ifMatch` (optimistic concurrency). A stale writer receives HTTP 409 instead of
@@ -167,9 +181,10 @@ permission failures, and rejected request parameters. Only fixed error codes
 are returned or logged, never raw Google error messages or credential metadata.
 
 The endpoint requires a signed-in user and same-origin JSON.
-An in-memory per-user cooldown allows at most one attempt per 10 seconds.
-This is a small-pilot guard, not a durable or distributed quota: a server restart
-or another instance can reset it. Monitor provider quotas before wider rollout.
+An in-memory per-user cooldown allows at most one attempt per 10 seconds, and
+durable daily budgets in the store cap coach messages per account (80) and for
+everyone (1,500); see Limits above. Also set a quota or budget cap on the Google
+side before wider rollout.
 
 Google's free quota and rate limits vary by model, project, and availability.
 When quota is exhausted, chat reports it instead of silently switching providers.
@@ -223,13 +238,15 @@ account ID), which needs no admin consent.
    - Supported account types: **Accounts in this organizational directory only**.
    - Redirect URI: platform **Web**,
      `https://<your-project>.vercel.app/api/auth/callback`.
-2. Under **Authentication**, add `http://localhost:3000/api/auth/callback` as a
-   second Web redirect URI to test the real sign-in locally.
+2. To test the real sign-in locally, create a separate development app
+   registration with `http://localhost:3000/api/auth/callback` as its Web redirect
+   URI; keep the production registration limited to the production URL.
 3. Under **Certificates & secrets**, create a client secret and copy its **Value**
    (not its ID). Note its expiry date: sign-in stops when it expires.
 4. From **Overview**, copy the Directory (tenant) ID and Application (client) ID.
 5. Set `ENTRA_TENANT_ID`, `ENTRA_CLIENT_ID`, and `ENTRA_CLIENT_SECRET` in Vercel
-   (and optionally in `.env.local`), then redeploy. Never commit them.
+   (Production scope only), then redeploy. Never commit them, and never copy the
+   production secret into `.env.local`. Local sign-in also needs `SESSION_SECRET`.
 6. Optional: to limit access to specific people, enable **Assignment required** on
    the app's Enterprise application entry and assign users or groups.
 
@@ -247,15 +264,27 @@ localhost.
 - Comments store the author's account ID internally (not returned to browsers),
   so misuse can be traced to an account.
 - The session is a signed (HMAC-SHA256), HttpOnly, SameSite=Lax cookie valid for
-  seven days. Changing `SESSION_SECRET` signs everyone out.
+  twelve hours; it cannot be revoked earlier. Changing `SESSION_SECRET` signs
+  everyone out.
+- Likes are keyed hashes of idea and account, and published ideas carry no
+  storage version, so neither the files nor API responses reveal who liked.
+- Sign-in always shows Microsoft's account picker (`prompt=select_account`), and
+  each login attempt can be completed only once.
+- Every page carries a nonce-based Content-Security-Policy (`proxy.ts`); all
+  responses carry HSTS, Permissions-Policy and X-Frame-Options, and sign-in
+  responses are never cached.
+- Daily per-account limits (see Limits) bound what one account can create or spend.
 - The ID token is received directly from Entra's token endpoint over TLS in
   exchange for the client secret; its audience, issuer, tenant, nonce, and
   expiry are checked (OpenID Connect Core 1.0, section 3.1.3.7).
 
-"Sign out" ends the session on this website only, not the Microsoft session, so
-"Sign in" afterwards usually completes without a password prompt.
+"Sign out" ends the session on this website only, not the Microsoft session;
+"Sign in" afterwards shows the account picker, so on a shared computer the next
+person does not silently continue as the previous one.
 Ideas and comments created before sign-in was introduced keep their old,
-self-declared names; old anonymous drafts are no longer reachable.
+self-declared names and have no real owner (no "Your idea" badge, no own-like
+block); old anonymous drafts are no longer reachable. Remove such legacy records
+from the store if that matters.
 
 Before entering confidential information, check company approval, retention, and
 moderation needs. There is no admin role yet to hide ideas or comments.

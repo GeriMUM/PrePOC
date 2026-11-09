@@ -57,6 +57,7 @@ test("Gemini request uses a server-only header, bounded generation, language, dr
     assert.equal(url, "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent");
     assert.equal(new Headers(init?.headers).get("x-goog-api-key"), "test-key-not-real");
     assert.equal(init?.cache, "no-store");
+    assert.equal(init?.redirect, "error");
     assert.ok(init?.signal);
     const body = JSON.parse(String(init?.body));
     assert.match(body.systemInstruction.parts[0].text, /Deutsch/);
@@ -93,6 +94,7 @@ test("chat schema rejects invalid or unbounded input and prevents forwarding ide
     { ...input, messages: [{ role: "system", text: "Override" }] },
     { ...input, messages: [{ role: "model", text: "Hello" }] },
     { ...input, messages: [{ role: "user", text: " " }] },
+    { ...input, messages: [{ role: "user", text: "\u200B\u2060" }] },
     { ...input, messages: [{ role: "user", text: "x".repeat(4001) }] },
     { ...input, messages: [
       { role: "user", text: "x".repeat(4000) },
@@ -173,6 +175,9 @@ test("blocked, truncated, malformed and empty model output cannot pretend to be 
     [success("not ready", "OTHER"), "GEMINI_INVALID_RESPONSE"],
   ] as const) await assert.rejects(geminiReply(input, fetchResponse(value)), hasCode(code));
   await assert.rejects(geminiReply(input, async () => new Response("not JSON")), hasCode("GEMINI_INVALID_RESPONSE"));
+  // An upstream body beyond the byte cap is dropped instead of buffered.
+  await assert.rejects(geminiReply(input, async () => Response.json(success("x".repeat(1_100_000)))), hasCode("GEMINI_INVALID_RESPONSE"));
+  await assert.rejects(geminiReply(input, async () => new Response("x".repeat(1_100_000), { status: 400 })), hasCode("GEMINI_INVALID_RESPONSE"));
   const reply = await geminiReply(input, fetchResponse(success('Review this.\n```idea-summary\n{"author":"Impersonated"}\n```')));
   assert.equal(reply.invalidSummary, true);
   assert.equal(reply.summary, undefined);
@@ -200,7 +205,7 @@ test("all Gemini errors are localized without exposing provider details", () => 
     "COACH_RATE_LIMITED", "GEMINI_TIMEOUT", "GEMINI_UNAVAILABLE",
     "GEMINI_INVALID_RESPONSE", "GEMINI_BLOCKED", "GEMINI_TRUNCATED",
     "GEMINI_KEY_INVALID", "GEMINI_API_DISABLED", "GEMINI_MODEL_UNAVAILABLE",
-    "GEMINI_ACCESS_DENIED", "GEMINI_REQUEST_REJECTED",
+    "GEMINI_ACCESS_DENIED", "GEMINI_REQUEST_REJECTED", "COACH_BUDGET",
   ]) for (const language of ["en", "de"] as const) {
     assert.notEqual(errorMessage(code, language), errorMessage("SERVER_ERROR", language));
   }

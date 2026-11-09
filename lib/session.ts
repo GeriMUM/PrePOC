@@ -7,7 +7,8 @@ import { sign, verify } from "./tokens";
 export interface User { id: string; name: string }
 
 export const sessionCookie = "cc-user";
-export const sessionMaxAge = 60 * 60 * 24 * 7;
+// Sessions are stateless and cannot be revoked, so they last one working day; Microsoft signs people in again silently.
+export const sessionMaxAge = 60 * 60 * 12;
 const userSchema = z.object({ id: z.string().min(1).max(128), name: z.string().min(1).max(80), exp: z.number() });
 
 export function userToken(user: User, now = Date.now()) {

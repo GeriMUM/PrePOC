@@ -3,10 +3,11 @@ import { coachingContext, parseCoachReply } from "./coach";
 import { AppError } from "./errors";
 import { geminiApiKey } from "./gemini-config";
 import { emptyIdea, ideaFieldsSchema } from "./model";
+import { text } from "./text";
 
 export const chatMessageSchema = z.object({
   role: z.enum(["user", "model"]),
-  text: z.string().trim().min(1).max(6000),
+  text: text(6000, 1),
 }).strict();
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 
@@ -37,13 +38,31 @@ const providerErrorSchema = z.object({
   }),
 });
 
-async function providerError(response: Response): Promise<AppError> {
-  let value: unknown;
+/** Reads a provider response with a byte cap, so a misbehaving upstream cannot exhaust memory. */
+async function readJson(response: Response, maxBytes = 1_000_000): Promise<unknown> {
+  const reader = response.body?.getReader();
+  if (!reader) return null;
+  const chunks: Uint8Array[] = [];
+  let length = 0;
   try {
-    value = await response.json();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > maxBytes) { await reader.cancel(); return null; }
+      chunks.push(value);
+    }
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
   } catch {
-    return new AppError("GEMINI_INVALID_RESPONSE", 502);
+    return null;
+  } finally {
+    reader.releaseLock();
   }
+}
+
+async function providerError(response: Response): Promise<AppError> {
+  const value = await readJson(response);
+  if (value === null) return new AppError("GEMINI_INVALID_RESPONSE", 502);
   const parsed = providerErrorSchema.safeParse(value);
   const reasons = parsed.success ? parsed.data.error.details?.map((detail) => detail.reason) ?? [] : [];
   // Only return fixed application codes; provider messages can contain secrets.
@@ -56,10 +75,11 @@ async function providerError(response: Response): Promise<AppError> {
   return new AppError("GEMINI_REQUEST_REJECTED", 503);
 }
 
+// A per-instance pause between messages; the durable daily budgets live in lib/quota.ts.
 const cooldowns = new Map<string, number>();
 export function reserveCoachRequest(sessionId: string, now = Date.now()) {
   for (const [id, expires] of cooldowns) if (expires <= now) cooldowns.delete(id);
-  if (cooldowns.has(sessionId) || cooldowns.size >= 1000) throw new AppError("COACH_RATE_LIMITED", 429);
+  if (cooldowns.has(sessionId)) throw new AppError("COACH_RATE_LIMITED", 429);
   cooldowns.set(sessionId, now + 10_000);
 }
 
@@ -77,6 +97,8 @@ export async function geminiReply(input: unknown, fetcher: typeof fetch = fetch)
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
       cache: "no-store",
+      // Never follow a redirect: the API key must only ever reach Google's own host.
+      redirect: "error",
       signal: AbortSignal.timeout(45_000),
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: coachingContext({ ...emptyIdea(), ...fields }, language) }] },
@@ -98,12 +120,8 @@ export async function geminiReply(input: unknown, fetcher: typeof fetch = fetch)
   if (response.status === 429) throw new AppError("GEMINI_QUOTA_EXCEEDED", 429);
   if ([400, 401, 403, 404].includes(response.status)) throw await providerError(response);
   if (!response.ok) throw new AppError("GEMINI_UNAVAILABLE", 502);
-  let value: unknown;
-  try {
-    value = await response.json();
-  } catch {
-    throw new AppError("GEMINI_INVALID_RESPONSE", 502);
-  }
+  const value = await readJson(response);
+  if (value === null) throw new AppError("GEMINI_INVALID_RESPONSE", 502);
   const result = responseSchema.safeParse(value);
   if (!result.success) throw new AppError("GEMINI_INVALID_RESPONSE", 502);
   const candidate = result.data.candidates?.[0];

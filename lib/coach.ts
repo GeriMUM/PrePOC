@@ -1,14 +1,20 @@
 import { ideaFieldsSchema, type IdeaFields, type Language } from "./model";
 
-export const summarySchema = ideaFieldsSchema.omit({ author: true, eventId: true }).partial().strict();
-export type IdeaSummary = Partial<Pick<IdeaFields, "title" | "problem" | "audience" | "solution" | "approach" | "impact">>;
+// The coach may only suggest the two fields the workshop shows and the author can review.
+export const summarySchema = ideaFieldsSchema.pick({ title: true, problem: true }).partial().strict();
+export type IdeaSummary = Partial<Pick<IdeaFields, "title" | "problem">>;
+// Fields the workshop does not show are dropped rather than published unseen.
+const hidden = ["audience", "solution", "approach", "impact"];
 
 export function parseCoachReply(text: string): { text: string; summary?: IdeaSummary; invalidSummary?: boolean } {
   // Models sometimes write ```json + idea-summary on the next line instead of ```idea-summary.
   const block = /```[ \t]*(?:json[ \t]*\r?\n?[ \t]*)?idea-summary[ \t]*\r?\n([\s\S]*?)```/i.exec(text);
   if (!block) return { text };
   try {
-    const parsed = summarySchema.safeParse(JSON.parse(block[1]));
+    const raw: unknown = JSON.parse(block[1]);
+    const visible = raw && typeof raw === "object" && !Array.isArray(raw)
+      ? Object.fromEntries(Object.entries(raw).filter(([key]) => !hidden.includes(key))) : raw;
+    const parsed = summarySchema.safeParse(visible);
     if (!parsed.success || !Object.values(parsed.data).some((value) => value?.trim())) {
       return { text, invalidSummary: true };
     }

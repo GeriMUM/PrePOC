@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
-  BlobPreconditionFailedError,
+  BlobPreconditionFailedError, BlobServiceNotAvailable, BlobServiceRateLimited,
   get, list, put,
 } from "@vercel/blob";
 import { AppError } from "./errors";
@@ -17,14 +17,32 @@ export interface JsonStore {
 const locks = new Map<string, Promise<void>>();
 const digest = (text: string) => createHash("sha256").update(text).digest("hex");
 
+/** Every store only ever touches these prefixes, with ids made of hex digits and dashes. */
+export function validKey(key: string): string {
+  if (!/^(ideas|comments|usage)\/[a-zA-Z0-9/-]*(?:\.json)?$/.test(key) || key.includes("..")) {
+    throw new Error("Invalid storage key");
+  }
+  return key;
+}
+
+/** Reads many keys with bounded concurrency, so a large store does not open hundreds of connections at once. */
+export async function readAll(store: JsonStore, keys: string[], concurrency = 16): Promise<(StoredFile | null)[]> {
+  const files: (StoredFile | null)[] = new Array(keys.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(concurrency, keys.length) }, async () => {
+    while (next < keys.length) {
+      const index = next++;
+      files[index] = await store.read(keys[index]);
+    }
+  }));
+  return files;
+}
+
 export class FileStore implements JsonStore {
   constructor(private root: string) {}
 
   private resolve(key: string) {
-    if (!/^(ideas|comments)\/[a-zA-Z0-9/-]*(?:\.json)?$/.test(key) || key.includes("..")) {
-      throw new Error("Invalid storage key");
-    }
-    return path.join(this.root, ...key.split("/"));
+    return path.join(this.root, ...validKey(key).split("/"));
   }
 
   async read(key: string): Promise<StoredFile | null> {
@@ -78,17 +96,28 @@ function isMissing(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
+/** Blob throttling or outages become a retryable 503 instead of a generic server error. */
+function translate(error: unknown): never {
+  if (error instanceof BlobPreconditionFailedError) throw new AppError("CONFLICT", 409);
+  if (error instanceof BlobServiceRateLimited || error instanceof BlobServiceNotAvailable) throw new AppError("STORAGE_BUSY", 503);
+  throw error;
+}
+
 export class BlobStore implements JsonStore {
   async read(key: string): Promise<StoredFile | null> {
-    const result = await get(key, { access: "private", useCache: false });
-    if (!result) return null;
-    if (result.statusCode !== 200) throw new Error("Unexpected Blob response");
-    return { text: await new Response(result.stream).text(), version: result.blob.etag };
+    try {
+      const result = await get(validKey(key), { access: "private", useCache: false });
+      if (!result) return null;
+      if (result.statusCode !== 200) throw new Error("Unexpected Blob response");
+      return { text: await new Response(result.stream).text(), version: result.blob.etag };
+    } catch (error) {
+      translate(error);
+    }
   }
 
   async write(key: string, text: string, version?: string): Promise<string> {
     try {
-      const result = await put(key, text, {
+      const result = await put(validKey(key), text, {
         access: "private",
         contentType: "application/json",
         addRandomSuffix: false,
@@ -97,21 +126,23 @@ export class BlobStore implements JsonStore {
       });
       return result.etag;
     } catch (error) {
-      if (error instanceof BlobPreconditionFailedError) {
-        throw new AppError("CONFLICT", 409);
-      }
-      throw error;
+      translate(error);
     }
   }
 
   async keys(prefix: string): Promise<string[]> {
+    validKey(prefix);
     const keys: string[] = [];
     let cursor: string | undefined;
-    do {
-      const page = await list({ prefix, cursor, limit: 1000 });
-      keys.push(...page.blobs.map((blob) => blob.pathname));
-      cursor = page.hasMore ? page.cursor : undefined;
-    } while (cursor);
+    try {
+      do {
+        const page = await list({ prefix, cursor, limit: 1000 });
+        keys.push(...page.blobs.map((blob) => blob.pathname));
+        cursor = page.hasMore ? page.cursor : undefined;
+      } while (cursor);
+    } catch (error) {
+      translate(error);
+    }
     return keys;
   }
 }

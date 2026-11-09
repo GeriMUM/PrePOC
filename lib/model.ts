@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { text } from "./text";
 
 export const events = [
   { id: "coffee-1", name: "copilot & coffee vol. 1" },
@@ -8,14 +9,14 @@ export const events = [
 export const eventSchema = z.enum(["coffee-1", "coffee-2"]);
 export const idSchema = z.uuid();
 export const ideaFieldsSchema = z.object({
-  title: z.string().trim().max(120),
-  author: z.string().trim().max(80),
+  title: text(120),
+  author: text(80),
   eventId: eventSchema,
-  problem: z.string().trim().max(3000),
-  audience: z.string().trim().max(1500),
-  solution: z.string().trim().max(3000),
-  approach: z.string().trim().max(2000),
-  impact: z.string().trim().max(2000),
+  problem: text(3000),
+  audience: text(1500),
+  solution: text(3000),
+  approach: text(2000),
+  impact: text(2000),
 });
 
 // The author always comes from the signed-in user, never from the request body.
@@ -26,6 +27,7 @@ export const saveIdeaSchema = ideaFieldsSchema.omit({ author: true }).extend({
 }).strict();
 
 export const likeInputSchema = z.object({ like: z.boolean() }).strict();
+export const maxLikes = 5000;
 
 export const ideaRecordSchema = ideaFieldsSchema.extend({
   id: idSchema,
@@ -33,16 +35,17 @@ export const ideaRecordSchema = ideaFieldsSchema.extend({
   status: z.enum(["draft", "published"]),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
-  // Account IDs only, so each person likes once; never sent to browsers.
-  likes: z.array(z.string().min(1).max(128)).max(5000).default([]),
+  // Keyed hashes of idea id + account id (see lib/ideas.ts): one like per person, no account ids
+  // in the store, and nothing a browser receives reveals who liked.
+  likes: z.array(z.string().min(1).max(128)).max(maxLikes).default([]),
 });
 
 export const commentInputSchema = z.object({
-  text: z.string().trim().min(1).max(1500),
+  text: text(1500, 1),
 }).strict();
 
 export const commentRecordSchema = commentInputSchema.extend({
-  author: z.string().trim().min(1).max(80),
+  author: text(80, 1),
   authorId: z.string().min(1).max(128).optional(),
   id: idSchema,
   ideaId: idSchema,
@@ -54,8 +57,11 @@ export type SaveIdea = z.infer<typeof saveIdeaSchema>;
 export type IdeaRecord = z.infer<typeof ideaRecordSchema>;
 export type CommentRecord = z.infer<typeof commentRecordSchema>;
 export type Comment = Omit<CommentRecord, "authorId">;
-/** What browsers see: an anonymous like count, plus whether the viewer liked or owns the idea. */
-export type Idea = Omit<IdeaRecord, "ownerId" | "likes"> & { version: string; likes: number; liked: boolean; mine: boolean };
+/**
+ * What browsers see: an anonymous like count, whether the viewer liked or owns the idea, and the
+ * storage version only for the viewer's own drafts (published ideas never change through the client).
+ */
+export type Idea = Omit<IdeaRecord, "ownerId" | "likes"> & { version?: string; likes: number; liked: boolean; mine: boolean };
 export type Language = "en" | "de";
 
 export function publishable(fields: IdeaFields): boolean {
