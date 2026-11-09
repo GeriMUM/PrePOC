@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { coachName, coachProvider } from "../lib/coach-config";
-import { composeMessage, copilotReply } from "../lib/copilot";
+import { composeMessage, copilotReply, directLineEndpoints } from "../lib/copilot";
 import { AppError } from "../lib/errors";
 import { errorMessage } from "../lib/i18n";
 import { verify } from "../lib/tokens";
@@ -16,7 +16,7 @@ const input = {
 const hasCode = (code: string) => (error: unknown) => error instanceof AppError && error.code === code;
 
 /** A fake Direct Line service: records calls, answers like Copilot Studio would. */
-function directLine(reply: string | string[] = "Welche Aufgabe nervt am meisten?", behaviour: { startStatus?: number; sendStatus?: number; greeting?: string; silent?: boolean } = {}) {
+function directLine(reply: string | string[] = "Welche Aufgabe nervt am meisten?", behaviour: { startStatus?: number; sendStatus?: number; greeting?: string; silent?: boolean; region?: string } = {}) {
   const calls: { method: string; url: string; body?: unknown; auth: string | null }[] = [];
   const conversations = new Map<string, { activities: unknown[] }>();
   let created = 0;
@@ -26,6 +26,8 @@ function directLine(reply: string | string[] = "Welche Aufgabe nervt am meisten?
     const body = init.body ? JSON.parse(String(init.body)) : undefined;
     calls.push({ method, url, body, auth: headers.get("authorization") });
     if (headers.get("authorization") !== `Bearer ${secret}`) return Response.json({ error: "bad secret" }, { status: 403 });
+    // Like Copilot Studio, the agent answers only from its own region.
+    if (behaviour.region && !url.startsWith(`https://${behaviour.region}.directline.botframework.com/`)) return Response.json({ error: "wrong region" }, { status: 403 });
     if (method === "POST" && url.endsWith("/conversations")) {
       if (behaviour.startStatus) return Response.json({}, { status: behaviour.startStatus });
       const id = `conv-${++created}`;
@@ -100,6 +102,23 @@ test("multi-part replies are joined; a silent agent is a timeout; rejected secre
   await assert.rejects(copilotReply(input, secret, userId, options((async () => { throw new TypeError("fetch failed"); }) as unknown as typeof fetch)), hasCode("COPILOT_UNAVAILABLE"));
 });
 
+test("a European agent is found on its regional endpoint, remembered, and resumed there", async () => {
+  delete (globalThis as { __ccDirectLineEndpoint?: string }).__ccDirectLineEndpoint;
+  const line = directLine("Servus!", { region: "europe" });
+  const reply = await copilotReply(input, secret, userId, options(line.fetcher));
+  assert.equal(reply.text, "Servus!");
+  const starts = line.calls.filter((call) => call.method === "POST" && call.url.endsWith("/conversations")).map((call) => new URL(call.url).host);
+  assert.deepEqual(starts, ["directline.botframework.com", "europe.directline.botframework.com"]);
+  assert.equal((verify("coach", reply.conversation) as { b: string }).b, "https://europe.directline.botframework.com");
+  assert.equal(directLineEndpoints({})[0], "https://europe.directline.botframework.com");
+  const again = await copilotReply({ ...input, conversation: reply.conversation }, secret, userId, options(line.fetcher));
+  assert.ok(again.text);
+  assert.ok(line.calls.slice(-3).every((call) => call.url.startsWith("https://europe.")));
+  assert.deepEqual(directLineEndpoints({ COPILOT_DIRECT_LINE_URL: "https://india.directline.botframework.com/" }), ["https://india.directline.botframework.com"]);
+  assert.throws(() => directLineEndpoints({ COPILOT_DIRECT_LINE_URL: "https://evil.example/directline.botframework.com" }), hasCode("COPILOT_INVALID_CONFIG"));
+  delete (globalThis as { __ccDirectLineEndpoint?: string }).__ccDirectLineEndpoint;
+});
+
 test("the draft context is appended only when there is one, in the employee's language", () => {
   assert.equal(composeMessage("Hallo", { title: "", problem: "  " }, "de"), "Hallo");
   assert.match(composeMessage("Hi", { title: "Booking", problem: "Slow" }, "en"), /Context \(the employee's current draft in the form\):\nTitle: Booking\nProblem: Slow$/);
@@ -114,7 +133,7 @@ test("the coach provider follows the configured credentials and an explicit choi
   assert.equal(coachName("copilot"), "Copilot");
   assert.equal(coachName("gemini"), "Gemini");
   assert.equal(coachName(null), "Coach");
-  for (const code of ["COACH_NOT_CONFIGURED", "COACH_TIMEOUT", "COPILOT_REJECTED", "COPILOT_QUOTA", "COPILOT_TIMEOUT", "COPILOT_UNAVAILABLE", "COPILOT_INVALID_RESPONSE"]) {
+  for (const code of ["COACH_NOT_CONFIGURED", "COACH_TIMEOUT", "COPILOT_REJECTED", "COPILOT_QUOTA", "COPILOT_TIMEOUT", "COPILOT_UNAVAILABLE", "COPILOT_INVALID_RESPONSE", "COPILOT_INVALID_CONFIG"]) {
     for (const language of ["en", "de"] as const) assert.notEqual(errorMessage(code, language), errorMessage("SERVER_ERROR", language));
   }
 });

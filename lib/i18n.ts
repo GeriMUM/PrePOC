@@ -137,7 +137,8 @@ const errors: Record<Language, Record<string, string>> = {
   en: {
     GEMINI_NOT_CONFIGURED: en.agentSetup, COACH_NOT_CONFIGURED: en.agentSetup,
     COACH_TIMEOUT: "The coach took too long to reply. Your message is preserved; please try again.",
-    COPILOT_REJECTED: "The Copilot agent refused the connection. The organizer should check the Direct Line secret and that the agent is published.",
+    COPILOT_REJECTED: "The Copilot agent refused the connection. The organizer should check that the agent is published and that the Direct Line secret is correct.",
+    COPILOT_INVALID_CONFIG: "COPILOT_DIRECT_LINE_URL is not a Direct Line endpoint. The organizer should fix or remove it.",
     COPILOT_QUOTA: "The Copilot agent's capacity is used up for now. Please try again later; your message is preserved.",
     COPILOT_TIMEOUT: "The Copilot agent did not answer in time. Your message is preserved; please try again.",
     COPILOT_UNAVAILABLE: "The Copilot agent is currently unreachable. Your message is preserved; please try again later.",
@@ -185,7 +186,8 @@ const errors: Record<Language, Record<string, string>> = {
   de: {
     GEMINI_NOT_CONFIGURED: de.agentSetup, COACH_NOT_CONFIGURED: de.agentSetup,
     COACH_TIMEOUT: "Der Coach hat zu lange gebraucht. Deine Nachricht bleibt erhalten; bitte versuche es erneut.",
-    COPILOT_REJECTED: "Der Copilot-Agent hat die Verbindung abgelehnt. Die Organisation sollte das Direct-Line-Secret prüfen und ob der Agent veröffentlicht ist.",
+    COPILOT_REJECTED: "Der Copilot-Agent hat die Verbindung abgelehnt. Die Organisation sollte prüfen, ob der Agent veröffentlicht ist und das Direct-Line-Secret stimmt.",
+    COPILOT_INVALID_CONFIG: "COPILOT_DIRECT_LINE_URL ist kein Direct-Line-Endpunkt. Die Organisation sollte den Wert korrigieren oder entfernen.",
     COPILOT_QUOTA: "Die Kapazität des Copilot-Agenten ist vorerst aufgebraucht. Bitte versuche es später erneut; deine Nachricht bleibt erhalten.",
     COPILOT_TIMEOUT: "Der Copilot-Agent hat nicht rechtzeitig geantwortet. Deine Nachricht bleibt erhalten; bitte versuche es erneut.",
     COPILOT_UNAVAILABLE: "Der Copilot-Agent ist gerade nicht erreichbar. Deine Nachricht bleibt erhalten; versuche es später erneut.",

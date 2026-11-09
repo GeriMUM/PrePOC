@@ -164,7 +164,11 @@ never the secret. Employees are identified to the agent by a pseudonymous hash o
    Vercel as `COPILOT_DIRECT_LINE_SECRET` (Production scope only) and redeploy. Once the
    integration works, enable *Require secured access* there to switch off the public
    demo website; secret-based calls keep working.
-4. When both a secret and `GEMINI_API_KEY` are set, Copilot wins; `COACH_PROVIDER` forces
+4. Copilot Studio serves Direct Line from the region of its Power Platform environment
+   (`directline`, `europe.directline` or `india.directline.botframework.com`); the server
+   tries them in that order and remembers the one that accepts the secret.
+   `COPILOT_DIRECT_LINE_URL` pins an endpoint explicitly.
+5. When both a secret and `GEMINI_API_KEY` are set, Copilot wins; `COACH_PROVIDER` forces
    one. Agents used from a custom website consume Copilot Studio capacity (credits),
    independent of employees' Microsoft 365 Copilot licenses; the daily budgets in
    `lib/quota.ts` still apply.

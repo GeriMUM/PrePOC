@@ -10,7 +10,16 @@ import { digest, sign, verify } from "./tokens";
  * The Direct Line secret never leaves the server; the browser only ever sees our own signed
  * conversation token, so nobody can write into someone else's conversation.
  */
-const base = "https://directline.botframework.com/v3/directline";
+// Copilot Studio serves Direct Line from the region of its environment; the first endpoint that
+// accepts the secret is remembered. COPILOT_DIRECT_LINE_URL pins one explicitly.
+const regions = ["https://directline.botframework.com", "https://europe.directline.botframework.com", "https://india.directline.botframework.com"];
+const endpointState = globalThis as { __ccDirectLineEndpoint?: string };
+export function directLineEndpoints(env: Record<string, string | undefined> = process.env): string[] {
+  const configured = env.COPILOT_DIRECT_LINE_URL?.trim().replace(/\/+$/, "");
+  if (!configured) return endpointState.__ccDirectLineEndpoint ? [endpointState.__ccDirectLineEndpoint, ...regions.filter((region) => region !== endpointState.__ccDirectLineEndpoint)] : regions;
+  if (!/^https:\/\/[a-z0-9.-]*directline\.botframework\.com$/.test(configured)) throw new AppError("COPILOT_INVALID_CONFIG", 503);
+  return [configured];
+}
 export const conversationMaxAge = 2 * 60 * 60;
 const replyDeadline = 45_000;
 const pollInterval = 1_000;
@@ -25,7 +34,7 @@ const activitySchema = z.object({
   inputHint: z.string().optional(),
 });
 const activitiesSchema = z.object({ activities: z.array(activitySchema), watermark: z.string().max(200).optional() });
-const stateSchema = z.object({ c: z.string().min(1).max(200), u: z.string(), w: z.string().max(200).optional(), exp: z.number() });
+const stateSchema = z.object({ c: z.string().min(1).max(200), u: z.string(), w: z.string().max(200).optional(), b: z.string().max(200), exp: z.number() });
 
 export interface CopilotOptions {
   fetcher?: typeof fetch;
@@ -72,11 +81,11 @@ export function composeMessage(message: string, fields: { title: string; problem
 }
 
 class DirectLine {
-  constructor(private secret: string, private fetcher: typeof fetch) {}
+  constructor(private secret: string, private fetcher: typeof fetch, readonly base: string) {}
 
   private async call(path: string, init: RequestInit = {}): Promise<Response> {
     try {
-      return await this.fetcher(`${base}${path}`, {
+      return await this.fetcher(`${this.base}/v3/directline${path}`, {
         ...init,
         headers: { Authorization: `Bearer ${this.secret}`, "Content-Type": "application/json" },
         cache: "no-store", redirect: "error", signal: AbortSignal.timeout(20_000),
@@ -88,8 +97,14 @@ class DirectLine {
     }
   }
 
-  async start(): Promise<string> {
+  /** Starts a conversation; null when this endpoint refuses the secret (wrong region or unpublished agent). */
+  async start(): Promise<string | null> {
     const response = await this.call("/conversations", { method: "POST" });
+    if (response.status === 401 || response.status === 403) {
+      // Status and host only, never the body or the secret: visible in the Vercel logs for diagnosis.
+      console.warn(`Direct Line ${new URL(this.base).host} refused the secret (HTTP ${response.status})`);
+      return null;
+    }
     if (!response.ok) throw failure(response.status);
     const parsed = startSchema.safeParse(await readJson(response));
     if (!parsed.success) throw new AppError("COPILOT_INVALID_RESPONSE", 502);
@@ -122,36 +137,46 @@ export async function copilotReply(input: unknown, secret: string, userId: strin
   if (!parsed.success) throw new AppError("INVALID_INPUT");
   const { fetcher = fetch, now = Date.now, sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)) } = options;
   const { fields, language, messages, conversation } = parsed.data;
-  const line = new DirectLine(secret, fetcher);
   const from = pseudonym(userId);
   const user = digest("copilot-conversation", userId);
+  const endpoints = directLineEndpoints();
+  async function open(): Promise<{ line: DirectLine; c: string }> {
+    for (const endpoint of endpoints) {
+      const line = new DirectLine(secret, fetcher, endpoint);
+      const c = await line.start();
+      if (c) { endpointState.__ccDirectLineEndpoint = endpoint; return { line, c }; }
+    }
+    throw new AppError("COPILOT_REJECTED", 503);
+  }
 
   // Resume the employee's own conversation when the signed token is valid, otherwise start a new one.
   const previous = stateSchema.safeParse(verify("coach", conversation));
-  let state = previous.success && previous.data.u === user && previous.data.exp > now() / 1000 ? previous.data : null;
+  let state = previous.success && previous.data.u === user && previous.data.exp > now() / 1000 && endpoints.includes(previous.data.b) ? previous.data : null;
+  let line = state ? new DirectLine(secret, fetcher, state.b) : null;
   const text = composeMessage(messages[messages.length - 1].text, fields, language);
   const locale = language === "de" ? "de-DE" : "en-US";
-  if (!state) {
-    const c = await line.start();
+  async function fresh() {
+    const opened = await open();
+    line = opened.line;
     // Let a greeting the agent may send at conversation start pass by, so it is not mixed into the reply.
     await sleep(settleTime);
-    state = { c, u: user, w: (await line.activities(c)).watermark, exp: 0 };
+    state = { c: opened.c, u: user, w: (await line.activities(opened.c)).watermark, b: line.base, exp: 0 };
   }
-  if (!(await line.send(state.c, from, text, locale))) {
-    const c = await line.start();
-    await sleep(settleTime);
-    state = { c, u: user, w: (await line.activities(c)).watermark, exp: 0 };
-    if (!(await line.send(state.c, from, text, locale))) throw new AppError("COPILOT_UNAVAILABLE", 502);
+  if (!state || !line) await fresh();
+  if (!(await line!.send(state!.c, from, text, locale))) {
+    await fresh();
+    if (!(await line!.send(state!.c, from, text, locale))) throw new AppError("COPILOT_UNAVAILABLE", 502);
   }
+  const active = { line: line!, state: state! };
 
   // Collect the agent's messages until it signals that it is waiting for input (and nothing more follows).
   const replies: string[] = [];
   const deadline = now() + replyDeadline;
-  let watermark = state.w;
+  let watermark = active.state.w;
   let settled = false;
   while (now() < deadline) {
     await sleep(pollInterval);
-    const page = await line.activities(state.c, watermark);
+    const page = await active.line.activities(active.state.c, watermark);
     watermark = page.watermark ?? watermark;
     let waiting = false;
     for (const activity of page.activities) {
@@ -164,6 +189,6 @@ export async function copilotReply(input: unknown, secret: string, userId: strin
   }
   if (!replies.length) throw new AppError("COPILOT_TIMEOUT", 504);
   const content = replies.join("\n\n").slice(0, maxReply);
-  const token = sign("coach", { c: state.c, u: user, w: watermark, exp: Math.floor(now() / 1000) + conversationMaxAge });
+  const token = sign("coach", { c: active.state.c, u: user, w: watermark, b: active.state.b, exp: Math.floor(now() / 1000) + conversationMaxAge });
   return { content, ...parseCoachReply(content), conversation: token };
 }
