@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { parseCoachReply } from "./coach";
 import { AppError } from "./errors";
-import { chatInputSchema } from "./gemini";
+import { chatInputSchema } from "./chat";
 import type { Language } from "./model";
 import { clean } from "./text";
 import { digest, sign, verify } from "./tokens";

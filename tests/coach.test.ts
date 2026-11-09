@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { coachingContext, extractSummary, parseCoachReply, summaryRequest } from "../lib/coach";
-import { emptyIdea } from "../lib/model";
+import { extractSummary, parseCoachReply, summaryRequest } from "../lib/coach";
 
 test("a plain reply stays conversational; a structured summary is separated for review", () => {
   assert.deepEqual(parseCoachReply("Who would this help?"), { text: "Who would this help?" });
@@ -40,14 +39,6 @@ test("invalid or oversized agent output cannot overwrite the idea summary or its
     assert.equal(result.summary, undefined);
     assert.equal(result.text, text);
   }
-});
-
-test("the coach receives the selected language and current draft, not the employee display name", () => {
-  const context = coachingContext({ ...emptyIdea("Private name"), title: "Time booking" }, "de");
-  assert.match(context, /Deutsch/);
-  assert.match(context, /Time booking/);
-  assert.match(context, /idea-summary/);
-  assert.doesNotMatch(context, /Private name/);
 });
 
 test("the move-to-form summary is read from plain JSON, fenced JSON or JSON with surrounding text", () => {

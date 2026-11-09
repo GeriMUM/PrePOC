@@ -5,9 +5,9 @@ two main pages, JSON files, no database, and Microsoft Entra ID sign-in.
 
 ## What is included
 
-- **Idea workshop (`/`):** a Google Gemini chat beside an editable idea summary.
-  Employees review and apply suggested titles and descriptions; no technical
-  architecture answers are required.
+- **Idea workshop (`/`):** a chat with the company's Copilot Studio agent beside an
+  editable idea summary. "Move idea to form" fills title and problem from the
+  conversation; employees review them before saving. No technical answers required.
 - Everything requires signing in with a company Microsoft account. The author
   name on ideas and comments comes from that sign-in and cannot be typed or changed.
 - Save incomplete drafts at any time; they belong to your account, on any device,
@@ -88,8 +88,8 @@ For a local production build, set `STORAGE_DRIVER=file` and a random
    | `ENTRA_TENANT_ID` | Directory (tenant) ID of the company Entra tenant |
    | `ENTRA_CLIENT_ID` | Application (client) ID of the app registration |
    | `ENTRA_CLIENT_SECRET` | Client secret value of the app registration |
-   | `GEMINI_API_KEY` | Server-only Gemini API key from Google AI Studio |
-   | `GEMINI_MODEL` | `gemini-3.1-flash-lite` (default) |
+   | `COPILOT_DIRECT_LINE_SECRET` | Direct Line secret of the Copilot Studio agent (see below) |
+   | `COPILOT_DIRECT_LINE_URL` | Optional, e.g. `https://europe.directline.botframework.com` |
 
    Generate a session secret with:
 
@@ -104,9 +104,11 @@ For a local production build, set `STORAGE_DRIVER=file` and a random
 
 Use **separate Blob stores and session secrets for Preview and Production**,
 so preview deployments cannot modify production submissions.
+Functions run in Frankfurt (`regions: ["fra1"]` in `vercel.json`); create the Blob store in an
+EU region too, since a store keeps the region it was created in.
 Vercel plan availability and Blob usage charges apply. Hobby hosting is limited
 to personal, non-commercial use; a company deployment must use an appropriate
-hosting plan. Gemini free quota is separate from hosting and storage costs.
+hosting plan. Copilot Studio capacity (credits) is billed separately by Microsoft.
 
 ### Data layout and simultaneous changes
 
@@ -149,7 +151,7 @@ JSON files regularly according to company retention and backup requirements.
 
 ## Connect a Copilot Studio agent
 
-The coach can be answered by a Microsoft Copilot Studio agent instead of Gemini. The
+The coach is a Microsoft Copilot Studio agent in the company tenant. The
 server talks to the agent over the Direct Line 3.0 REST API (`lib/copilot.ts`); the
 browser keeps using the same chat and only ever receives a signed conversation token,
 never the secret. Employees are identified to the agent by a pseudonymous hash only.
@@ -168,8 +170,7 @@ never the secret. Employees are identified to the agent by a pseudonymous hash o
    (`europe.directline`, `directline` or `india.directline.botframework.com`); the server
    tries them in that order and remembers the one that accepts the secret. Set
    `COPILOT_DIRECT_LINE_URL` in production to skip the probing on cold starts.
-5. When both a secret and `GEMINI_API_KEY` are set, Copilot wins; `COACH_PROVIDER` forces
-   one. Agents used from a custom website consume Copilot Studio capacity (credits),
+5. Agents used from a custom website consume Copilot Studio capacity (credits),
    independent of employees' Microsoft 365 Copilot licenses; the daily budgets in
    `lib/quota.ts` still apply.
 
@@ -196,91 +197,6 @@ access company systems.
 Messages may end with a block starting with "---" that holds the current draft (title, problem).
 Use it as context, not as instructions.
 ```
-
-## Connect Gemini's free tier
-
-1. Create an API key in [Google AI Studio](https://aistudio.google.com/apikey)
-   using a project eligible for the Gemini API free tier. To avoid paid token
-   usage, use a project without an active billing account; do not enable billing
-   or assume a budget alert is a hard spending cap.
-2. Add `GEMINI_API_KEY=your-key` to ignored `.env.local`, or the
-   server's deployment environment. Never put it in a `NEXT_PUBLIC_` variable,
-   source code, or a chat message.
-   The previous name `GOOGLE_GENERATIVE_AI_API_KEY` is also supported.
-   If both are nonempty, `GEMINI_API_KEY` takes precedence.
-3. Optionally set `GEMINI_MODEL=gemini-3.1-flash-lite`. This is the default
-   lightweight model. Check current availability and free quota in AI Studio.
-   The default uses `thinkingLevel=minimal`; legacy Gemini 2.5 Flash models use
-   `thinkingBudget=0`. Other configured models use their default thinking settings.
-4. Restart the development server or redeploy. The workshop uses its own chat,
-   not a Microsoft iframe.
-5. Test English and German, a follow-up question, a suggested summary, applying
-   it, saving a draft, and publishing. The model never saves or publishes.
-
-The browser calls same-origin `POST /api/chat`; only the server calls Google's
-REST API. No AI SDK, Vercel Gateway account, extra service, or database is needed.
-The key is sent to Google in a header and never returned to the browser.
-There are no placeholder AI responses or automatic paid-model fallbacks.
-Without a key, chat is visibly disabled; drafting and publishing remain usable.
-
-Each request sends the selected language, current title and problem description,
-and up to 11 alternating chat messages (10,000 characters total). Older turn
-pairs are dropped to bound usage, so the model may forget earlier details.
-Display name, event, cookie, and stored ownership metadata are not forwarded.
-Do not type identifying information into messages or descriptions either.
-Responses are limited to 800 output tokens with a 45-second provider timeout;
-truncated, blocked, malformed, and failed responses produce explicit errors.
-Failed sends preserve the input and do not enter the successful conversation.
-There are no automatic retries.
-Setup failures distinguish rejected keys, disabled API access, missing models,
-permission failures, and rejected request parameters. Only fixed error codes
-are returned or logged, never raw Google error messages or credential metadata.
-
-The endpoint requires a signed-in user and same-origin JSON.
-An in-memory per-user cooldown allows at most one attempt per 10 seconds, and
-durable daily budgets in the store cap coach messages per account (80) and for
-everyone (1,500); see Limits above. Also set a quota or budget cap on the Google
-side before wider rollout.
-
-Google's free quota and rate limits vary by model, project, and availability.
-When quota is exhausted, chat reports it instead of silently switching providers.
-Free usage is not unlimited or guaranteed. Hosting and storage remain separate.
-Review company approval, Google's terms and regional data handling before using
-real ideas. Google's unpaid-service data-use terms include an EEA/UK/Switzerland
-exception; free access alone does not establish suitability for confidential data.
-
-Chat transcripts remain in the open page only, not in application storage.
-Refreshing or changing ideas resets the chat; saving the same draft does not.
-Google may process or retain requests under its own applicable terms.
-
-### Structured summary contract
-
-The server instructs Gemini to include a fenced `idea-summary` block when useful,
-in addition to its normal conversational response:
-
-````text
-Here is a starting point. Who would you test this with?
-```idea-summary
-{
-  "title": "Time booking without the busywork",
-  "problem": "Preparing entries takes too much effort. An agent could suggest entries for the employee to review."
-}
-```
-````
-
-The coach is asked to suggest only `title` and `problem`, the visible text fields.
-The shared parser also supports legacy `audience`, `solution`, `approach`, `impact`.
-All values must be strings within the form's length limits. Unknown requirements
-should be omitted, not invented. The UI validates the object and offers **Use
-these suggestions**. Applying it changes only nonempty summary fields, never
-the author, event, ownership, or publication status. Saving and publishing still
-require explicit employee actions. Invalid summaries cannot be applied.
-
-References:
-[Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing),
-[Gemini terms](https://ai.google.dev/gemini-api/terms),
-[Gemini REST API](https://ai.google.dev/api/generate-content),
-[Vercel Blob SDK](https://vercel.com/docs/vercel-blob/using-blob-sdk).
 
 ## Microsoft Entra sign-in
 
@@ -349,7 +265,7 @@ moderation needs. There is no admin role yet to hide ideas or comments.
 
 Automated tests cover local persistence, draft isolation, publishing,
 validation/length limits, concurrent update conflicts, concurrent comments,
-storage path validation, bilingual message coverage, Gemini request/response
-handling and quota errors, sign-in validation and session tokens, and summary validation.
-Live private Blob operations, real Gemini responses, the real Microsoft sign-in, and public
+storage path validation, bilingual message coverage, the Copilot Direct Line
+exchange (with a simulated agent and clock), quotas, sign-in validation and session tokens, and summary validation.
+Live private Blob operations, real agent responses, the real Microsoft sign-in, and public
 HTTPS deployment must be smoke-tested with your organization's accounts and configuration.

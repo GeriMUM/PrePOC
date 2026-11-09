@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { api, body } from "../../../../lib/api";
+import { chatInputSchema, chatMessageSchema, releaseCoachRequest, reserveCoachRequest } from "../../../../lib/chat";
 import { extractSummary, summaryRequest } from "../../../../lib/coach";
-import { coachProvider, directLineSecret } from "../../../../lib/coach-config";
+import { directLineSecret } from "../../../../lib/coach-config";
 import { copilotReply } from "../../../../lib/copilot";
 import { AppError } from "../../../../lib/errors";
-import { chatInputSchema, chatMessageSchema, geminiReply, releaseCoachRequest, reserveCoachRequest } from "../../../../lib/gemini";
 import { ideaFieldsSchema } from "../../../../lib/model";
 import { Quota } from "../../../../lib/quota";
 import { session } from "../../../../lib/session";
@@ -26,7 +26,7 @@ const inputSchema = z.object({
   conversation: z.string().max(4000).optional(),
 }).strict();
 
-/** "Move to form": asks the coach for title and problem of the idea discussed so far. */
+/** "Move to form": asks the coach, in the same conversation, for title and problem of the idea discussed so far. */
 export async function POST(request: Request) {
   return api(async () => {
     const deadline = Date.now() + 290_000;
@@ -37,8 +37,8 @@ export async function POST(request: Request) {
     try {
       const input = inputSchema.safeParse(await body(request, 96_000));
       if (!input.success) throw new AppError("INVALID_INPUT");
-      const provider = coachProvider();
-      if (!provider) throw new AppError("COACH_NOT_CONFIGURED", 503);
+      const secret = directLineSecret();
+      if (!secret) throw new AppError("COACH_NOT_CONFIGURED", 503);
       const ask = { role: "user" as const, text: summaryRequest(input.data.language) };
       // Drop the oldest pairs until history plus the request fits the chat limits; the agent itself keeps the full conversation.
       let history = input.data.messages;
@@ -47,10 +47,10 @@ export async function POST(request: Request) {
       if (!chat.success) throw new AppError("INVALID_INPUT");
       // Validated before counting, so a malformed request costs no budget.
       await new Quota(storage()).chat(owner.id);
-      const reply = provider === "copilot" ? await copilotReply(chat.data, directLineSecret() ?? "", owner.id, { deadline }) : await geminiReply(chat.data);
+      const reply = await copilotReply(chat.data, secret, owner.id, { deadline });
       const summary = extractSummary(reply.content);
       if (!summary) throw new AppError("COACH_INVALID_SUMMARY", 502);
-      return { summary, ...("conversation" in reply ? { conversation: reply.conversation } : {}) };
+      return { summary, conversation: reply.conversation };
     } catch (error) {
       releaseCoachRequest(key);
       throw error;

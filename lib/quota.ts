@@ -11,7 +11,7 @@ export const limits = {
   writesPerDay: 300,
   /** Coach messages per account. */
   chatPerDay: 80,
-  /** Coach messages for the whole company, so one busy day cannot run up the Gemini bill. */
+  /** Coach messages for the whole company, so one busy day cannot use up the Copilot Studio capacity. */
   chatTotalPerDay: 1500,
 } as const;
 

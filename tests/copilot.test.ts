@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { coachName, coachProvider } from "../lib/coach-config";
+import { directLineSecret } from "../lib/coach-config";
 import { composeMessage, copilotReply, directLineEndpoints, replyBudget } from "../lib/copilot";
 import { AppError } from "../lib/errors";
 import { errorMessage } from "../lib/i18n";
@@ -133,23 +133,14 @@ test("the draft context is appended only when there is one, in the employee's la
   assert.equal(composeMessage("Hi", { title: "", problem: "x".repeat(700) }, "en").length, "Hi\n\n---\nContext (the employee's current draft in the form):\nTitle: –\nProblem: ".length + 600);
 });
 
-test("the coach provider follows the configured credentials and an explicit choice", () => {
-  assert.equal(coachProvider({}), null);
-  assert.equal(coachProvider({ COPILOT_DIRECT_LINE_SECRET: "s" }), "copilot");
-  assert.equal(coachProvider({ COPILOT_DIRECT_LINE_SECRET: "s", COACH_PROVIDER: "gemini", GEMINI_API_KEY: "" }), geminiProviderOrNull());
-  assert.equal(coachProvider({ COACH_PROVIDER: "copilot" }), null);
-  assert.equal(coachName("copilot"), "Copilot");
-  assert.equal(coachName("gemini"), "Gemini");
-  assert.equal(coachName(null), "Coach");
-  for (const code of ["COACH_NOT_CONFIGURED", "COACH_TIMEOUT", "COPILOT_REJECTED", "COPILOT_QUOTA", "COPILOT_TIMEOUT", "COPILOT_UNAVAILABLE", "COPILOT_INVALID_RESPONSE", "COPILOT_INVALID_CONFIG"]) {
+test("the coach is configured by the Direct Line secret alone, and its errors are localized", () => {
+  assert.equal(directLineSecret({}), undefined);
+  assert.equal(directLineSecret({ COPILOT_DIRECT_LINE_SECRET: "  s  " }), "s");
+  for (const code of ["COACH_NOT_CONFIGURED", "COACH_TIMEOUT", "COACH_RATE_LIMITED", "COACH_BUDGET", "COPILOT_REJECTED", "COPILOT_QUOTA", "COPILOT_TIMEOUT", "COPILOT_UNAVAILABLE", "COPILOT_INVALID_RESPONSE", "COPILOT_INVALID_CONFIG"]) {
     for (const language of ["en", "de"] as const) assert.notEqual(errorMessage(code, language), errorMessage("SERVER_ERROR", language));
   }
 });
 
-// Gemini's key is read from process.env, so the expectation depends on the test environment.
-function geminiProviderOrNull() {
-  return process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() ? "gemini" : null;
-}
 
 test("a silent agent ends within the time budget with a bounded number of polls", async () => {
   const line = directLine("x", { silent: true, region: "europe" });
