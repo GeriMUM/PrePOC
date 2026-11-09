@@ -31,8 +31,9 @@ export function devLoginAllowed(env: Env = process.env) {
   return env.NODE_ENV !== "production" && !env.VERCEL && env.DEV_LOGIN === "1";
 }
 
+/** Only same-site paths, optionally with the workshop's `?idea=<uuid>` deep link. */
 export function safeReturnTo(value: string | null | undefined): string {
-  return value && /^\/(?!\/)[\w\-/]*$/.test(value) ? value : "/";
+  return value && /^\/(?!\/)[\w\-/]*(?:\?idea=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/i.test(value) ? value : "/";
 }
 
 const authority = (config: EntraConfig) => `https://login.microsoftonline.com/${config.tenantId}`;

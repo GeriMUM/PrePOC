@@ -84,20 +84,51 @@ test("invisible characters do not count as content and direction overrides are r
   } finally { await cleanup(); }
 });
 
-test("publishing updates the same idea, exposes it publicly without a storage version, and freezes further edits", async () => {
-  const { ideas, cleanup } = await setup();
+test("publishing updates the same idea and exposes it publicly; only the owner receives a content revision", async () => {
+  const { store, ideas, cleanup } = await setup();
   try {
     const draft = await ideas.save(input, owner);
     const published = await ideas.save({ ...input, id: draft.id, version: draft.version, publish: true }, owner);
     assert.equal(published.id, draft.id);
     assert.equal(published.status, "published");
     assert.equal(published.createdAt, draft.createdAt);
-    assert.equal(published.version, undefined);
+    assert.equal(published.version, published.updatedAt);
+    assert.equal(published.publishedAt, published.updatedAt);
+    assert.equal(draft.publishedAt, undefined);
     assert.equal((await ideas.all()).length, 1);
     assert.equal((await ideas.all())[0].id, draft.id);
     assert.equal("version" in (await ideas.all(undefined, other.id))[0], false);
-    assert.equal("version" in (await ideas.all(owner.id))[0], false);
-    await assert.rejects(ideas.save({ ...input, id: draft.id, version: published.version }, owner), hasCode("ALREADY_PUBLISHED"));
+    assert.equal((await ideas.all(owner.id))[0].version, published.updatedAt);
+    // The revision is never the storage hash, which covers the hidden like list.
+    const file = await store.read(`ideas/${draft.id}.json`);
+    assert.notEqual(published.version, file?.version);
+  } finally { await cleanup(); }
+});
+
+test("owners keep editing published ideas; stale edits conflict, others are refused, and likes survive", async () => {
+  const { ideas, cleanup } = await setup();
+  try {
+    const published = await ideas.save({ ...input, publish: true }, owner);
+    await ideas.like(published.id, { like: true }, other);
+    const edited = await ideas.save({ ...input, title: "Sharper title", id: published.id, version: published.version, publish: false }, owner);
+    assert.deepEqual([edited.title, edited.status, edited.likes, edited.createdAt], ["Sharper title", "published", 1, published.createdAt]);
+    // The publication date stays; the edit is visible through updatedAt.
+    assert.equal(edited.publishedAt, published.publishedAt);
+    assert.ok(edited.updatedAt > edited.publishedAt!);
+    assert.ok(edited.version && edited.version > published.version!);
+    assert.equal((await ideas.all())[0].title, "Sharper title");
+    await assert.rejects(ideas.save({ ...input, id: published.id, version: published.version }, owner), hasCode("CONFLICT"));
+    await assert.rejects(ideas.save({ ...input, id: published.id, version: edited.version }, other), hasCode("NOT_FOUND"));
+    await assert.rejects(ideas.save({ ...input, id: published.id }, owner), hasCode("INVALID_INPUT"));
+    await assert.rejects(ideas.save({ ...input, title: " ", id: published.id, version: edited.version }, owner), hasCode("INCOMPLETE_IDEA"));
+    // A like landing between read and write is retried, not reported as a conflict.
+    const latest = (await ideas.all(owner.id))[0];
+    const [saved] = await Promise.all([
+      ideas.save({ ...input, title: "Raced", id: published.id, version: latest.version }, owner),
+      ideas.like(published.id, { like: true }, { id: randomUUID(), name: "Late Liker" }),
+    ]);
+    assert.equal(saved.title, "Raced");
+    assert.equal((await ideas.all())[0].likes, 2);
   } finally { await cleanup(); }
 });
 
@@ -123,8 +154,10 @@ test("each account has a bounded number of drafts and published ideas, and the s
     const first = await ideas.save(input, owner);
     await ideas.save(input, owner);
     await assert.rejects(ideas.save(input, owner), hasCode("IDEA_LIMIT"));
-    await ideas.save({ ...input, id: first.id, version: first.version, publish: true }, owner);
+    const published = await ideas.save({ ...input, id: first.id, version: first.version, publish: true }, owner);
     await assert.rejects(ideas.save({ ...input, publish: true }, owner), hasCode("IDEA_LIMIT"));
+    // Editing an already published idea is not a new publication.
+    await ideas.save({ ...input, title: "Edited", id: published.id, version: published.version, publish: true }, owner);
     await ideas.save(input, owner);
     await ideas.save(input, other);
     await assert.rejects(ideas.save(input, other), hasCode("IDEA_LIMIT"));
@@ -254,18 +287,23 @@ test("one damaged record is skipped instead of taking down the gallery or a conv
   } finally { await cleanup(); }
 });
 
-test("owners can delete their own drafts, but nobody can delete published ideas or others' drafts", async () => {
+test("owners can delete their own drafts and published ideas (with comments); nobody else can", async () => {
   const { store, ideas, cleanup } = await setup();
   try {
     const draft = await ideas.save(input, owner);
     const published = await ideas.save({ ...input, publish: true }, owner);
-    await assert.rejects(ideas.deleteDraft(draft.id, other), hasCode("NOT_FOUND"));
-    await assert.rejects(ideas.deleteDraft(published.id, owner), hasCode("ALREADY_PUBLISHED"));
-    await assert.rejects(ideas.deleteDraft(randomUUID(), owner), hasCode("NOT_FOUND"));
-    await ideas.deleteDraft(draft.id, owner);
+    const comment = await ideas.comment(published.id, { text: "Goes with the idea" }, other);
+    await assert.rejects(ideas.deleteIdea(draft.id, other), hasCode("NOT_FOUND"));
+    await assert.rejects(ideas.deleteIdea(published.id, other), hasCode("NOT_FOUND"));
+    await assert.rejects(ideas.deleteIdea(randomUUID(), owner), hasCode("NOT_FOUND"));
+    await ideas.deleteIdea(draft.id, owner);
     assert.deepEqual(await ideas.all(owner.id).then((mine) => mine.map((idea) => idea.id)), [published.id]);
     assert.equal(await store.read(`ideas/${draft.id}.json`), null);
-    await assert.rejects(ideas.deleteDraft(draft.id, owner), hasCode("NOT_FOUND"));
+    await assert.rejects(ideas.deleteIdea(draft.id, owner), hasCode("NOT_FOUND"));
+    await ideas.deleteIdea(published.id, owner);
+    assert.deepEqual(await ideas.all(), []);
+    assert.equal(await store.read(`comments/${published.id}/${comment.id}.json`), null);
+    await assert.rejects(ideas.comments(published.id), hasCode("NOT_FOUND"));
     await store.delete(`ideas/${draft.id}.json`);
   } finally { await cleanup(); }
 });

@@ -56,7 +56,10 @@ test("the local test login needs an explicit opt-in and is never available in pr
 
 test("return paths stay on this site", () => {
   assert.equal(safeReturnTo("/ideas"), "/ideas");
-  for (const bad of ["//evil.example", "https://evil.example", "/\\evil.example", "ideas", null]) assert.equal(safeReturnTo(bad), "/");
+  assert.equal(safeReturnTo(`/?idea=${oid}`), `/?idea=${oid}`);
+  for (const bad of ["//evil.example", "https://evil.example", "/\\evil.example", "ideas", null, "/?idea=../x", `/?idea=${oid}&x=1`, "/?other=1"]) {
+    assert.equal(safeReturnTo(bad), "/");
+  }
 });
 
 test("sign-in uses the tenant authority with PKCE, asks which account to use, and returns the verified user", async () => {

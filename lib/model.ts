@@ -35,6 +35,8 @@ export const ideaRecordSchema = ideaFieldsSchema.extend({
   status: z.enum(["draft", "published"]),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
+  // Set when the idea goes public; later edits move updatedAt past it, which the gallery shows as "edited".
+  publishedAt: z.iso.datetime().optional(),
   // Keyed hashes of idea id + account id (see lib/ideas.ts): one like per person, no account ids
   // in the store, and nothing a browser receives reveals who liked.
   likes: z.array(z.string().min(1).max(128)).max(maxLikes).default([]),

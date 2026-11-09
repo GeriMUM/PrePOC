@@ -20,22 +20,28 @@ export interface IdeaLimits {
 export const defaultLimits: IdeaLimits = { drafts: 25, published: 10, total: 2000, comments: 500, commentsPerAuthor: 30, likes: maxLikes };
 
 const ideaKey = (id: string) => `ideas/${id}.json`;
+const commentKey = (ideaId: string, commentId: string) => `comments/${ideaId}/${commentId}.json`;
 /** Likes are stored as keyed hashes of idea id and account id: one like per person, no account ids in the store. */
 const likeToken = (ideaId: string, userId: string) => digest("like", `${ideaId}:${userId}`);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** A timestamp strictly after `previous`, so every content change gets its own revision. */
+function later(previous?: string) {
+  const now = new Date().toISOString();
+  return previous && now <= previous ? new Date(Date.parse(previous) + 1).toISOString() : now;
+}
 
 function decode(file: StoredFile): IdeaRecord {
   return ideaRecordSchema.parse(JSON.parse(file.text));
 }
 
-function present(record: IdeaRecord, version: string, viewerId?: string): Idea {
+function present(record: IdeaRecord, viewerId?: string): Idea {
   const { ownerId, likes, ...idea } = record;
   const mine = Boolean(viewerId) && ownerId === viewerId;
   return {
     ...idea,
-    // The storage version is a hash of the stored record, which holds the hidden like list, so it is
-    // only shared with the owner of a draft: published ideas never change through the client.
-    ...(mine && record.status === "draft" ? { version } : {}),
+    // Owners get a content revision for optimistic edits: the time of the last content change, never the
+    // storage hash, which covers the hidden like list and would let an owner work out who liked.
+    ...(mine ? { version: record.updatedAt } : {}),
     likes: likes.length,
     // Records written before likes were hashed hold raw account ids; both forms count as the viewer's like.
     liked: Boolean(viewerId) && (likes.includes(likeToken(record.id, viewerId ?? "")) || likes.includes(viewerId ?? "")),
@@ -47,7 +53,6 @@ function presentComment(record: CommentRecord, viewerId?: string): Comment {
   const { authorId, ...comment } = record;
   return { ...comment, mine: Boolean(viewerId) && authorId === viewerId };
 }
-const commentKey = (ideaId: string, commentId: string) => `comments/${ideaId}/${commentId}.json`;
 
 /** Decodes every readable record; one damaged file is logged and skipped instead of failing the whole list. */
 function decodeAll<T>(keys: string[], files: (StoredFile | null)[], parse: (file: StoredFile) => T): { key: string; file: StoredFile; record: T }[] {
@@ -72,54 +77,79 @@ export class Ideas {
     const { ideas } = await this.scan();
     return ideas
       .filter(({ record }) => ownerId ? record.ownerId === ownerId : record.status === "published")
-      .map(({ record, file }) => present(record, file.version, viewerId))
+      .map(({ record }) => present(record, viewerId))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
+  /** Creates an idea, or updates one of the owner's ideas, drafts and published ones alike. */
   async save(raw: unknown, owner: User): Promise<Idea> {
     const ownerId = owner.id;
     const parsed = saveIdeaSchema.safeParse(raw);
     if (!parsed.success) throw new AppError("INVALID_INPUT");
     const { id, version, publish, ...rest } = parsed.data;
     const fields = { ...rest, author: owner.name };
-    if (publish && !publishable(fields)) throw new AppError("INCOMPLETE_IDEA");
-    let existing: IdeaRecord | undefined;
-    if (id) {
-      const file = await this.store.read(ideaKey(id));
-      if (!file) throw new AppError("NOT_FOUND", 404);
-      existing = decode(file);
-      if (existing.ownerId !== ownerId) throw new AppError("NOT_FOUND", 404);
-      if (existing.status === "published") throw new AppError("ALREADY_PUBLISHED", 409);
-      if (file.version !== version) throw new AppError("CONFLICT", 409);
-    } else if (version) {
-      throw new AppError("INVALID_INPUT");
+    if (!id) {
+      if (version) throw new AppError("INVALID_INPUT");
+      if (publish && !publishable(fields)) throw new AppError("INCOMPLETE_IDEA");
+      await this.checkIdeaLimits(ownerId, true, publish);
+      const now = later();
+      const record: IdeaRecord = {
+        ...fields, id: randomUUID(), ownerId, status: publish ? "published" : "draft",
+        createdAt: now, updatedAt: now, ...(publish ? { publishedAt: now } : {}), likes: [],
+      };
+      await this.store.write(ideaKey(record.id), JSON.stringify(record));
+      return present(record, ownerId);
     }
-    if (!existing || publish) await this.checkIdeaLimits(ownerId, !existing, publish);
-    const now = new Date().toISOString();
-    const record: IdeaRecord = {
-      ...fields, id: existing?.id ?? randomUUID(), ownerId,
-      status: publish ? "published" : "draft",
-      createdAt: existing?.createdAt ?? now, updatedAt: now, likes: existing?.likes ?? [],
-    };
-    const newVersion = await this.store.write(ideaKey(record.id), JSON.stringify(record), version);
-    return present(record, newVersion, ownerId);
+    if (!version) throw new AppError("INVALID_INPUT");
+    // Likes rewrite the stored file but not the content revision, so a like that lands during an edit is
+    // retried instead of being reported as a conflict; a stale editor still gets CONFLICT.
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const file = await this.store.read(ideaKey(id));
+      const existing = file && decode(file);
+      if (!file || !existing || existing.ownerId !== ownerId) throw new AppError("NOT_FOUND", 404);
+      if (existing.updatedAt !== version) throw new AppError("CONFLICT", 409);
+      const status = publish || existing.status === "published" ? "published" : "draft";
+      if (status === "published" && !publishable(fields)) throw new AppError("INCOMPLETE_IDEA");
+      if (status === "published" && existing.status === "draft") await this.checkIdeaLimits(ownerId, false, true);
+      const updatedAt = later(existing.updatedAt);
+      const record: IdeaRecord = {
+        ...existing, ...fields, status, updatedAt,
+        ...(status === "published" && existing.status === "draft" ? { publishedAt: updatedAt } : {}),
+      };
+      try {
+        await this.store.write(ideaKey(id), JSON.stringify(record), file.version);
+        return present(record, ownerId);
+      } catch (error) {
+        if (!(error instanceof AppError && error.code === "CONFLICT")) throw error;
+        await sleep(15 + Math.random() * 60 * (attempt + 1));
+      }
+    }
+    throw new AppError("CONFLICT", 409);
   }
 
-  /** Owners can remove their own drafts; published ideas stay, so the gallery and its conversations remain consistent. */
-  async deleteDraft(id: string, owner: User): Promise<void> {
+  /** Owners can remove their own ideas, drafts and published ones alike, together with the idea's comments. */
+  async deleteIdea(id: string, owner: User): Promise<void> {
     const file = await this.store.read(ideaKey(id));
     const record = file && decode(file);
     if (!file || !record || record.ownerId !== owner.id) throw new AppError("NOT_FOUND", 404);
-    if (record.status === "published") throw new AppError("ALREADY_PUBLISHED", 409);
+    // The idea goes first: if removing comments fails halfway, nothing stays published without its conversation.
     await this.store.delete(ideaKey(id));
+    // A like or edit that was in flight may have written the record back; it loses.
+    if (await this.store.read(ideaKey(id))) await this.store.delete(ideaKey(id));
+    // Two passes, so a comment written while the first listing ran is removed as well.
+    for (let pass = 0; pass < 2; pass++) {
+      const keys = await this.store.keys(`comments/${id}/`);
+      if (!keys.length) break;
+      await this.store.delete(keys);
+    }
   }
 
-  private async checkIdeaLimits(ownerId: string, creating: boolean, publish: boolean) {
+  private async checkIdeaLimits(ownerId: string, creating: boolean, publishing: boolean) {
     const { total, ideas } = await this.scan();
     const mine = ideas.filter(({ record }) => record.ownerId === ownerId);
     const count = (status: IdeaRecord["status"]) => mine.filter(({ record }) => record.status === status).length;
-    if (creating && (total >= this.limits.total || (!publish && count("draft") >= this.limits.drafts))) throw new AppError("IDEA_LIMIT", 429);
-    if (publish && count("published") >= this.limits.published) throw new AppError("IDEA_LIMIT", 429);
+    if (creating && (total >= this.limits.total || (!publishing && count("draft") >= this.limits.drafts))) throw new AppError("IDEA_LIMIT", 429);
+    if (publishing && count("published") >= this.limits.published) throw new AppError("IDEA_LIMIT", 429);
   }
 
   /** Adds or removes the user's like. Retries with backoff when simultaneous clicks race on the same idea. */
@@ -135,11 +165,12 @@ export class Ideas {
       // Also drops this user's raw account id from records written before likes were hashed.
       const others = record.likes.filter((like) => like !== token && like !== user.id);
       const already = others.length !== record.likes.length;
-      if (already === parsed.data.like) return present(record, file.version, user.id);
+      if (already === parsed.data.like) return present(record, user.id);
       if (parsed.data.like && others.length >= this.limits.likes) throw new AppError("LIKE_LIMIT", 409);
       const next: IdeaRecord = { ...record, likes: parsed.data.like ? [...others, token] : others };
       try {
-        return present(next, await this.store.write(ideaKey(id), JSON.stringify(next), file.version), user.id);
+        await this.store.write(ideaKey(id), JSON.stringify(next), file.version);
+        return present(next, user.id);
       } catch (error) {
         if (!(error instanceof AppError && error.code === "CONFLICT")) throw error;
         await sleep(15 + Math.random() * 60 * (attempt + 1));
@@ -185,6 +216,11 @@ export class Ideas {
       ...parsed.data, author: author.name, authorId: author.id, id: randomUUID(), ideaId: id, createdAt: new Date().toISOString(),
     };
     await this.store.write(commentKey(id, comment.id), JSON.stringify(comment));
+    // The idea may have been deleted while this comment was being written; keep no orphaned text.
+    if (!(await this.store.read(ideaKey(id)))) {
+      await this.store.delete(commentKey(id, comment.id));
+      throw new AppError("NOT_FOUND", 404);
+    }
     return presentComment(comment, author.id);
   }
 }

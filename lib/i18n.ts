@@ -23,10 +23,13 @@ const en = {
   impact: "What difference would it make?",
   impactPlaceholder: "What would you test in one day? How would you know it helped?",
   next: "Next step", save: "Save draft", saving: "Saving…", publish: "Publish idea",
-  publishTitle: "Ready to share your spark?", publishDescription: "Publishing makes your idea and your name visible to all signed-in colleagues. Published ideas cannot be edited in this MVP.",
+  publishTitle: "Ready to share your spark?", publishDescription: "Publishing makes your idea and your name visible to all signed-in colleagues. You can still edit or delete it later in the workshop.",
   publishConfirm: "Publish to gallery", cancel: "Keep working", saved: "Draft saved. You can pick it up again later.",
   publishedNotice: "Your idea is published. Find it in the gallery and start a conversation.",
-  readonly: "This idea is published and read-only.", unsaved: "Unsaved changes", savedLabel: "All changes saved",
+  saveChanges: "Save changes", changesSaved: "Changes saved. They are visible to everyone right away.",
+  publishedEditHint: "Published – edits are visible to everyone right away.", editIdea: "Edit",
+  deleteIdea: "Delete idea", deleteIdeaConfirm: "Delete this published idea with all its comments and likes? This cannot be undone.", ideaDeleted: "Idea deleted.",
+  unsaved: "Unsaved changes", savedLabel: "All changes saved",
   required: "Add an idea title and a problem description before publishing. Architecture and other details are optional.",
   coach: "Your thinking partner",
   coachBadge: "Gemini", coachWelcome: "Start with a task that annoys you.",
@@ -43,7 +46,7 @@ const en = {
   addComment: "Post comment", commentPosted: "Comment posted.",
   like: "Like", likes: "Likes", likesAnonymous: "Likes are anonymous.", mine: "Your idea",
   sortLabel: "Sort", sortNewest: "Newest", sortPopular: "Most liked", copyLink: "Copy link", linkCopied: "Link copied", refresh: "Refresh",
-  exportCsv: "Export CSV", authorHeading: "Author", publishedOn: "Published on", link: "Link",
+  exportCsv: "Export CSV", authorHeading: "Author", publishedOn: "Published on", lastEdited: "Last edited", editedOn: "edited", link: "Link",
   deleteDraft: "Delete draft", deleteDraftConfirm: "Delete this draft? This cannot be undone.", draftDeleted: "Draft deleted.",
   deleteComment: "Delete", deleteCommentConfirm: "Delete your comment? This cannot be undone.",
   conversationIntro: "Describe the problem, sharpen it with the coach, publish when you’re ready.",
@@ -85,10 +88,13 @@ const de: Record<keyof typeof en, string> = {
   impact: "Welchen Unterschied würde das machen?",
   impactPlaceholder: "Was würdest du an einem Tag testen? Woran erkennst du den Nutzen?",
   next: "Weiter", save: "Entwurf speichern", saving: "Wird gespeichert…", publish: "Idee veröffentlichen",
-  publishTitle: "Bereit, deinen Funken zu teilen?", publishDescription: "Mit der Veröffentlichung sind deine Idee und dein Name für alle angemeldeten Kolleginnen und Kollegen sichtbar. Veröffentlichte Ideen können in diesem MVP nicht bearbeitet werden.",
+  publishTitle: "Bereit, deinen Funken zu teilen?", publishDescription: "Mit der Veröffentlichung sind deine Idee und dein Name für alle angemeldeten Kolleginnen und Kollegen sichtbar. Du kannst sie später in der Werkstatt weiter bearbeiten oder löschen.",
   publishConfirm: "In der Galerie veröffentlichen", cancel: "Weiterarbeiten", saved: "Entwurf gespeichert. Du kannst ihn später weiterbearbeiten.",
   publishedNotice: "Deine Idee ist veröffentlicht. Entdecke sie in der Galerie und starte ein Gespräch.",
-  readonly: "Diese Idee ist veröffentlicht und schreibgeschützt.", unsaved: "Ungespeicherte Änderungen", savedLabel: "Alle Änderungen gespeichert",
+  saveChanges: "Änderungen speichern", changesSaved: "Änderungen gespeichert. Sie sind sofort für alle sichtbar.",
+  publishedEditHint: "Veröffentlicht – Änderungen sind sofort für alle sichtbar.", editIdea: "Bearbeiten",
+  deleteIdea: "Idee löschen", deleteIdeaConfirm: "Diese veröffentlichte Idee mit allen Kommentaren und Likes löschen? Das kann nicht rückgängig gemacht werden.", ideaDeleted: "Idee gelöscht.",
+  unsaved: "Ungespeicherte Änderungen", savedLabel: "Alle Änderungen gespeichert",
   required: "Ergänze einen Ideentitel und eine Problembeschreibung. Architektur und weitere Angaben sind optional.",
   coach: "Dein Denkpartner",
   coachBadge: "Gemini", coachWelcome: "Beginne mit einer Aufgabe, die dich nervt.",
@@ -105,7 +111,7 @@ const de: Record<keyof typeof en, string> = {
   addComment: "Kommentar senden", commentPosted: "Kommentar gesendet.",
   like: "Like", likes: "Likes", likesAnonymous: "Likes sind anonym.", mine: "Deine Idee",
   sortLabel: "Sortieren", sortNewest: "Neueste", sortPopular: "Meiste Likes", copyLink: "Link kopieren", linkCopied: "Link kopiert", refresh: "Aktualisieren",
-  exportCsv: "CSV exportieren", authorHeading: "Autor:in", publishedOn: "Veröffentlicht am", link: "Link",
+  exportCsv: "CSV exportieren", authorHeading: "Autor:in", publishedOn: "Veröffentlicht am", lastEdited: "Zuletzt bearbeitet", editedOn: "bearbeitet", link: "Link",
   deleteDraft: "Entwurf löschen", deleteDraftConfirm: "Diesen Entwurf löschen? Das kann nicht rückgängig gemacht werden.", draftDeleted: "Entwurf gelöscht.",
   deleteComment: "Löschen", deleteCommentConfirm: "Deinen Kommentar löschen? Das kann nicht rückgängig gemacht werden.",
   conversationIntro: "Beschreibe das Problem, schärfe es mit dem Coach und veröffentliche, wenn du bereit bist.",
@@ -215,5 +221,6 @@ const errors: Record<Language, Record<string, string>> = {
 };
 
 export function errorMessage(code: string, language: Language) {
-  return errors[language][code] ?? errors[language].SERVER_ERROR;
+  // Own keys only, so a code such as "constructor" can never resolve to an inherited object.
+  return Object.hasOwn(errors[language], code) ? errors[language][code] : errors[language].SERVER_ERROR;
 }

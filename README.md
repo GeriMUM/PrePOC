@@ -17,15 +17,16 @@ two main pages, JSON files, no database, and Microsoft Entra ID sign-in.
   is no optional-details section. Existing additional details remain preserved
   in saved records.
 - **Gallery (`/ideas`):** published ideas, event filtering, text search, sorting by
-  anonymous likes, idea details with shareable links, comments (authors can delete
-  their own), and a CSV export of the ideas currently listed, e.g. for the jury.
+  anonymous likes, idea details with shareable links and an "edited" marker when
+  the owner changed a published idea, comments (authors can delete their own), and
+  a CSV export of the ideas currently listed, e.g. for the jury.
 - English/German interface switching, remembered with a cookie.
 - Events: `copilot&coffe vol 1` and `copilot & coffe vol 2`.
 - Private Vercel Blob JSON storage in deployment; local JSON files for development.
 
-No sample submissions are inserted into real storage. Published ideas are
-read-only in this MVP and cannot be deleted; comments can be deleted only by
-their author.
+No sample submissions are inserted into real storage. Owners can edit and delete
+their own ideas, drafts and published ones alike (deleting a published idea also
+removes its comments and likes); comments can be deleted only by their author.
 Interface switching does not translate employees' submitted content.
 Page navigation uses full document loads so the browser can warn about unsaved
 draft changes before leaving the workshop.
@@ -117,9 +118,10 @@ usage/<yyyy-mm-dd>/<bucket>/<hash>.json   (daily counters for the limits below)
 
 All files are private. Only backend routes read or write them; browser clients
 never receive a storage token or raw Blob URL. Public gallery responses omit
-drafts, internal ownership identifiers and the storage version of published
-ideas. Likes are stored as keyed hashes of idea and account (`lib/ideas.ts`), so
-neither the files nor any response names who liked.
+drafts and internal ownership identifiers, and no response ever carries a storage
+version: owners edit with a content revision (`updatedAt`) instead. Likes are
+stored as keyed hashes of idea and account (`lib/ideas.ts`), so neither the files
+nor any response names who liked.
 
 ### Limits
 
@@ -132,7 +134,8 @@ by a hash of the account id); they are not cleaned up automatically.
 
 Each idea is a single small JSON document. Updates use the Blob ETag with
 `ifMatch` (optimistic concurrency). A stale writer receives HTTP 409 instead of
-silently replacing another update. Private reads bypass Blob's content cache.
+silently replacing another update; a like that lands while the owner edits is
+retried rather than reported as a conflict. Private reads bypass Blob's content cache.
 Comments each have their own immutable file, so simultaneous comments do not
 overwrite one another. Listing is paginated internally.
 
@@ -269,7 +272,7 @@ localhost.
 - The session is a signed (HMAC-SHA256), HttpOnly, SameSite=Lax cookie valid for
   twelve hours; it cannot be revoked earlier. Changing `SESSION_SECRET` signs
   everyone out.
-- Likes are keyed hashes of idea and account, and published ideas carry no
+- Likes are keyed hashes of idea and account, and responses never carry the
   storage version, so neither the files nor API responses reveal who liked.
 - Sign-in always shows Microsoft's account picker (`prompt=select_account`), and
   each login attempt can be completed only once.

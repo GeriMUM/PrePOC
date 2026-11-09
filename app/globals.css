@@ -80,7 +80,9 @@ h1 { font-size: clamp(32px, 4.2vw, 48px); font-weight: 650; letter-spacing: -.03
 .secondary:hover:not(:disabled) { border-color: var(--ink); }
 .text-button { border: 0; background: none; padding: 4px 0; font-size: 14px; font-weight: 600; color: var(--orange-dark); }
 .text-button:hover:not(:disabled) { text-decoration: underline; }
-.delete-draft { margin-right: auto; color: var(--muted); }
+.delete-draft { color: var(--muted); }
+.detail-meta .edit-link { white-space: nowrap; }
+.detail-meta .edited-on { font-style: italic; }
 .delete-comment { font-size: 13px; color: var(--muted); margin-top: 4px; }
 input, textarea, select { background: var(--white); border: 1px solid #d4d4d4; border-radius: 6px; padding: 10px 12px; font-size: 15px; line-height: 1.5; width: 100%; }
 input:hover, textarea:hover, select:hover { border-color: #b5b5b5; }

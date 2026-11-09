@@ -8,6 +8,7 @@ test("both interface languages have matching non-empty messages", () => {
   assert.ok(Object.values(messages.de).every(Boolean));
   assert.notEqual(errorMessage("CONFLICT", "en"), errorMessage("CONFLICT", "de"));
   assert.ok(errorMessage("unknown", "en"));
+  for (const code of ["constructor", "__proto__", "toString"]) assert.equal(errorMessage(code, "de"), errorMessage("SERVER_ERROR", "de"));
 });
 
 test("every limit and storage error code has its own message in both languages", () => {
