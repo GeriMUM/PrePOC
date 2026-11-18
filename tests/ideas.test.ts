@@ -371,6 +371,9 @@ test("admins listed in ADMIN_IDS manage every published idea and comment, but ne
   const admin = { id: randomUUID(), name: "Organizer" };
   const previous = process.env.ADMIN_IDS;
   process.env.ADMIN_IDS = ` ${other.id.toUpperCase()}, ${admin.id} `;
+  const logged: string[] = [];
+  const info = console.info;
+  console.info = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
   try {
     const draft = await ideas.save(input, owner);
     const published = await ideas.save({ ...input, publish: true }, owner);
@@ -383,6 +386,9 @@ test("admins listed in ADMIN_IDS manage every published idea and comment, but ne
     const comment = await ideas.comment(published.id, { text: "Spam" }, { id: randomUUID(), name: "Someone" });
     assert.deepEqual((await ideas.comments(published.id, admin.id)).map((entry) => [entry.mine, entry.deletable]), [[false, true]]);
     await ideas.deleteComment(published.id, comment.id, admin);
+    // Every admin action on someone else's idea is logged with the actor, never the content.
+    assert.deepEqual(logged.map((line) => line.split(" ")[1] + " " + line.split(" ")[2]), ["edited idea", "changed status", "deleted comment"]);
+    assert.ok(logged.every((line) => line.includes(admin.id) && !line.includes("Spam")));
     // Drafts stay private to their owner, even for admins.
     await assert.rejects(ideas.save({ ...input, id: draft.id, version: draft.version }, admin), hasCode("NOT_FOUND"));
     await assert.rejects(ideas.setStage(draft.id, { stage: "closed" }, admin), hasCode("NOT_FOUND"));
@@ -393,7 +399,13 @@ test("admins listed in ADMIN_IDS manage every published idea and comment, but ne
     await assert.rejects(ideas.setStage(published.id, { stage: "new" }, colleague), hasCode("NOT_FOUND"));
     await ideas.deleteIdea(published.id, admin);
     assert.deepEqual(await ideas.all(), []);
+    assert.match(logged.at(-1) ?? "", /^\[admin\] deleted idea /);
+    // Owners acting on their own ideas are not logged as admin actions.
+    const own = await ideas.save({ ...input, publish: true }, admin);
+    await ideas.setStage(own.id, { stage: "closed" }, admin);
+    assert.equal(logged.length, 4);
   } finally {
+    console.info = info;
     if (previous === undefined) delete process.env.ADMIN_IDS; else process.env.ADMIN_IDS = previous;
     await cleanup();
   }

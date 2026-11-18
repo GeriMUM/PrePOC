@@ -40,6 +40,14 @@ export function isAdmin(userId: string | undefined, env: Record<string, string |
   return (env.ADMIN_IDS ?? "").split(",").map((id) => id.trim().toLowerCase()).filter(Boolean).includes(userId.toLowerCase());
 }
 /** Owners manage their own ideas; admins manage published ones (drafts stay private to their owner). */
+/**
+ * Audit line in the Vercel logs whenever an admin changes something that is not their own: who (Entra object id
+ * and name), what, and which idea or comment. Never the content.
+ */
+function auditAdmin(action: string, actor: User, target: { ideaId: string; commentId?: string; title?: string; stage?: string }) {
+  console.info(`[admin] ${action}`, JSON.stringify({ actor: actor.id, actorName: actor.name, ...target, at: new Date().toISOString() }));
+}
+
 const canManage = (record: IdeaRecord, userId?: string) => Boolean(userId) && (record.ownerId === userId || (record.status === "published" && isAdmin(userId)));
 
 function present(record: IdeaRecord, viewerId?: string): Idea {
@@ -130,6 +138,7 @@ export class Ideas {
       };
       try {
         await this.store.write(ideaKey(id), JSON.stringify(record), file.version);
+        if (existing.ownerId !== ownerId) auditAdmin("edited idea", owner, { ideaId: id, title: record.title });
         return present(record, ownerId);
       } catch (error) {
         if (!(error instanceof AppError && error.code === "CONFLICT")) throw error;
@@ -144,6 +153,7 @@ export class Ideas {
     const file = await this.store.read(ideaKey(id));
     const record = file && decode(file);
     if (!file || !record || !canManage(record, owner.id)) throw new AppError("NOT_FOUND", 404);
+    if (record.ownerId !== owner.id) auditAdmin("deleted idea", owner, { ideaId: id, title: record.title });
     // The idea goes first: if removing comments fails halfway, nothing stays published without its conversation.
     await this.store.delete(ideaKey(id));
     // A like or edit that was in flight may have written the record back; it loses.
@@ -176,6 +186,7 @@ export class Ideas {
       const next: IdeaRecord = { ...record, stage: parsed.data.stage };
       try {
         await this.store.write(ideaKey(id), JSON.stringify(next), file.version);
+        if (record.ownerId !== owner.id) auditAdmin("changed status", owner, { ideaId: id, title: record.title, stage: next.stage });
         return present(next, owner.id);
       } catch (error) {
         if (!(error instanceof AppError && error.code === "CONFLICT")) throw error;
@@ -229,12 +240,13 @@ export class Ideas {
     return (await this.loadComments(id)).map((record) => presentComment(record, viewerId));
   }
 
-  /** Authors can remove their own comments; everyone else gets the same answer as for a missing comment. */
+  /** Authors (and admins) can remove comments; everyone else gets the same answer as for a missing comment. */
   async deleteComment(ideaId: string, commentId: string, author: User): Promise<void> {
     const file = await this.store.read(commentKey(ideaId, commentId));
     const record = file && commentRecordSchema.parse(JSON.parse(file.text));
     if (!file || !record || (record.authorId !== author.id && !isAdmin(author.id))) throw new AppError("NOT_FOUND", 404);
     await this.store.delete(commentKey(ideaId, commentId));
+    if (record.authorId !== author.id) auditAdmin("deleted comment", author, { ideaId, commentId });
   }
 
   async comment(id: string, raw: unknown, author: User): Promise<Comment> {

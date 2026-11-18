@@ -63,8 +63,8 @@ export type CommentRecord = z.infer<typeof commentRecordSchema>;
 /** What browsers see: no account id, but whether the viewer wrote the comment (and may delete it). */
 export type Comment = Omit<CommentRecord, "authorId"> & { mine: boolean; deletable: boolean };
 /**
- * What browsers see: an anonymous like count, whether the viewer liked or owns the idea, and the
- * storage version only for the viewer's own drafts (published ideas never change through the client).
+ * What browsers see: an anonymous like count, whether the viewer liked, owns or may manage the idea, and,
+ * for those who may manage it, a content revision (updatedAt) for optimistic edits, never the storage hash.
  */
 export type Idea = Omit<IdeaRecord, "ownerId" | "likes"> & { version?: string; likes: number; liked: boolean; mine: boolean; manage: boolean };
 export type Language = "en" | "de";
