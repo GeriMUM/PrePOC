@@ -13,15 +13,15 @@ two main pages, JSON files, no database, and Microsoft Entra ID sign-in.
 - Save incomplete drafts at any time; they belong to your account, on any device,
   and you can delete them again. Publishing requires only a title and problem
   description.
-  The submission form contains only these fields and the event selector; there
+  The submission form contains only these fields and an optional target date; there
   is no optional-details section. Existing additional details remain preserved
   in saved records.
-- **Gallery (`/ideas`):** published ideas, event filtering, text search, sorting by
+- **Gallery (`/ideas`):** published ideas with a status everyone sees (new, in progress,
+  closed; set by the owner), status filtering, text search, sorting by
   anonymous likes, idea details with shareable links and an "edited" marker when
   the owner changed a published idea, comments (authors can delete their own), and
   a CSV export of the ideas currently listed, e.g. for the jury.
 - English/German interface switching, remembered with a cookie.
-- Events: `copilot&coffe vol 1` and `copilot & coffe vol 2`.
 - Private Vercel Blob JSON storage in deployment; local JSON files for development.
 
 No sample submissions are inserted into real storage. Owners can edit and delete
@@ -99,7 +99,7 @@ For a local production build, set `STORAGE_DRIVER=file` and a random
 
 4. Deploy or redeploy after configuring environment variables. Vercel gives the
    website an HTTPS address. Do not commit credentials.
-5. At that address, save and reopen a draft, publish an idea, filter its event,
+5. At that address, save and reopen a draft, publish an idea, change its status,
    post a comment, and verify another account cannot list or modify the draft.
 
 Use **separate Blob stores and session secrets for Preview and Production**,

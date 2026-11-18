@@ -1,17 +1,16 @@
 import { z } from "zod";
 import { text } from "./text";
 
-export const events = [
-  { id: "coffee-1", name: "copilot & coffee vol. 1" },
-  { id: "coffee-2", name: "copilot & coffee vol. 2" },
-] as const;
-
-export const eventSchema = z.enum(["coffee-1", "coffee-2"]);
+/** Progress of an idea, visible to everyone and set by its owner. */
+export const stages = ["new", "in_progress", "closed"] as const;
+export const stageSchema = z.enum(stages);
+export type Stage = z.infer<typeof stageSchema>;
 export const idSchema = z.uuid();
 export const ideaFieldsSchema = z.object({
   title: text(120),
   author: text(80),
-  eventId: eventSchema,
+  // When the idea should be implemented (yyyy-mm-dd), or "" when open; older records have none.
+  dueDate: z.union([z.literal(""), z.iso.date()]).default(""),
   problem: text(3000),
   audience: text(1500),
   solution: text(3000),
@@ -27,12 +26,15 @@ export const saveIdeaSchema = ideaFieldsSchema.omit({ author: true }).extend({
 }).strict();
 
 export const likeInputSchema = z.object({ like: z.boolean() }).strict();
+export const stageInputSchema = z.object({ stage: stageSchema }).strict();
 export const maxLikes = 5000;
 
 export const ideaRecordSchema = ideaFieldsSchema.extend({
   id: idSchema,
   ownerId: z.string().min(1).max(128),
   status: z.enum(["draft", "published"]),
+  // Older records predate the progress field and count as new.
+  stage: stageSchema.default("new"),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   // Set when the idea goes public; later edits move updatedAt past it, which the gallery shows as "edited".
@@ -73,5 +75,5 @@ export function publishable(fields: IdeaFields): boolean {
 }
 
 export function emptyIdea(author = ""): IdeaFields {
-  return { title: "", author, eventId: "coffee-1", problem: "", audience: "", solution: "", approach: "", impact: "" };
+  return { title: "", author, dueDate: "", problem: "", audience: "", solution: "", approach: "", impact: "" };
 }

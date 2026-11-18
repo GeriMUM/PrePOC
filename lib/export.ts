@@ -1,7 +1,7 @@
-import { events, type Idea } from "./model";
+import type { Idea, Stage } from "./model";
 
 export type ExportLabels = Record<
-  "title" | "author" | "event" | "likes" | "publishedOn" | "lastEdited" | "link" | "problem" | "audience" | "solution" | "approach" | "impact", string>;
+  "title" | "author" | "stage" | "dueDate" | "likes" | "publishedOn" | "lastEdited" | "link" | "problem" | "audience" | "solution" | "approach" | "impact", string>;
 
 /** When the idea went public (older records only know when the draft was created). */
 export const publishedOn = (idea: Idea) => idea.publishedAt ?? idea.createdAt;
@@ -17,11 +17,11 @@ export function csvCell(value: string | number): string {
 }
 
 /** The published ideas as a UTF-8 CSV (with BOM for Excel), one row per idea, in the listed order. */
-export function ideasCsv(ideas: Idea[], origin: string, labels: ExportLabels): string {
-  const header = [labels.title, labels.author, labels.event, labels.likes, labels.publishedOn, labels.lastEdited, labels.link,
+export function ideasCsv(ideas: Idea[], origin: string, labels: ExportLabels, stageNames: Record<Stage, string>): string {
+  const header = [labels.title, labels.author, labels.stage, labels.dueDate, labels.likes, labels.publishedOn, labels.lastEdited, labels.link,
     labels.problem, labels.audience, labels.solution, labels.approach, labels.impact];
   const rows = ideas.map((idea) => [
-    idea.title, idea.author, events.find((event) => event.id === idea.eventId)?.name ?? idea.eventId, idea.likes,
+    idea.title, idea.author, stageNames[idea.stage], idea.dueDate, idea.likes,
     publishedOn(idea).slice(0, 10), editedOn(idea)?.slice(0, 10) ?? "", `${origin}/ideas/${idea.id}`,
     idea.problem, idea.audience, idea.solution, idea.approach, idea.impact,
   ]);

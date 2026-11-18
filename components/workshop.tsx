@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { emptyIdea, events, publishable, type Idea, type IdeaFields } from "../lib/model";
+import { emptyIdea, publishable, type Idea, type IdeaFields } from "../lib/model";
 import type { IdeaSummary } from "../lib/coach";
 import { errorMessage } from "../lib/i18n";
 import { Coach } from "./coach";
@@ -124,8 +124,8 @@ export function Workshop({ coachConfigured, coachName, userName, initialId = "" 
           <legend className="sr-only">{t.ideaSummary}</legend>
           <div className="basics">
             <label className="field title-field"><span>{t.title}</span><input name="title" placeholder={t.titlePlaceholder} value={fields.title} onChange={(event) => update("title", event.target.value)} maxLength={120} /></label>
-            <div className="event-field">
-              <label className="field"><span>{t.event}</span><select value={fields.eventId} onChange={(event) => update("eventId", event.target.value === "coffee-2" ? "coffee-2" : "coffee-1")}>{events.map((event) => <option key={event.id} value={event.id}>{event.name}</option>)}</select></label>
+            <div className="date-field">
+              <label className="field"><span>{t.dueDate} <em>{t.optional}</em></span><input type="date" name="dueDate" value={fields.dueDate ?? ""} onChange={(event) => update("dueDate", event.target.value)} /></label>
             </div>
           </div>
           <div className="summary-fields">

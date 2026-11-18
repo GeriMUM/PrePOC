@@ -12,7 +12,7 @@ import { FileStore } from "../lib/storage";
 const owner = { id: randomUUID(), name: "Alex Example" };
 const other = { id: randomUUID(), name: "Sam Other" };
 const input: SaveIdea = {
-  title: "Time booking assistant", eventId: "coffee-1",
+  title: "Time booking assistant", dueDate: "2026-12-15",
   problem: "Booking hours takes too long.", audience: "Employees",
   solution: "Suggest entries from a short conversation.",
   approach: "Description → suggestion → human approval → booking tool",
@@ -68,7 +68,9 @@ test("drafts can be incomplete; publishing only requires title and problem", asy
     assert.equal(simple.solution, "");
     await assert.rejects(ideas.save({ ...input, title: "x".repeat(121) }, owner), hasCode("INVALID_INPUT"));
     await assert.rejects(ideas.save({ ...input, problem: "x".repeat(3001) }, owner), hasCode("INVALID_INPUT"));
-    await assert.rejects(ideas.save({ ...input, eventId: "unknown" }, owner), hasCode("INVALID_INPUT"));
+    for (const dueDate of ["15.12.2026", "2026-02-30", "soon"]) await assert.rejects(ideas.save({ ...input, dueDate }, owner), hasCode("INVALID_INPUT"));
+    await assert.rejects(ideas.save({ ...input, eventId: "coffee-1" }, owner), hasCode("INVALID_INPUT"));
+    assert.equal((await ideas.save({ ...input, dueDate: "" }, owner)).dueDate, "");
   } finally { await cleanup(); }
 });
 
@@ -335,5 +337,31 @@ test("storage rejects path traversal and create collisions", async () => {
     await store.write(key, '{"ok":true}');
     await assert.rejects(store.write(key, '{"ok":false}'), hasCode("CONFLICT"));
     assert.deepEqual(await store.keys("ideas/"), [key]);
+  } finally { await cleanup(); }
+});
+
+test("everyone sees an idea's status; only its owner can change it, without an edit marker", async () => {
+  const { store, ideas, cleanup } = await setup();
+  try {
+    const published = await ideas.save({ ...input, publish: true }, owner);
+    assert.equal(published.stage, "new");
+    assert.equal(published.dueDate, "2026-12-15");
+    await assert.rejects(ideas.setStage(published.id, { stage: "closed" }, other), hasCode("NOT_FOUND"));
+    await assert.rejects(ideas.setStage(published.id, { stage: "done" }, owner), hasCode("INVALID_INPUT"));
+    await assert.rejects(ideas.setStage(published.id, { stage: "closed", title: "x" }, owner), hasCode("INVALID_INPUT"));
+    const moved = await ideas.setStage(published.id, { stage: "in_progress" }, owner);
+    assert.equal(moved.stage, "in_progress");
+    assert.equal(moved.updatedAt, published.updatedAt);
+    assert.equal((await ideas.all(undefined, other.id))[0].stage, "in_progress");
+    // Editing the content keeps the status.
+    const edited = await ideas.save({ ...input, title: "Renamed", id: published.id, version: moved.version, publish: false }, owner);
+    assert.equal(edited.stage, "in_progress");
+    // Records from before status and target date existed still load.
+    const legacyId = randomUUID();
+    const legacy = { ...JSON.parse((await store.read(`ideas/${published.id}.json`))?.text ?? "{}"), id: legacyId, eventId: "coffee-1" };
+    delete legacy.stage; delete legacy.dueDate;
+    await store.write(`ideas/${legacyId}.json`, JSON.stringify(legacy));
+    const loaded = (await ideas.all()).find((idea) => idea.id === legacyId);
+    assert.deepEqual([loaded?.stage, loaded?.dueDate, "eventId" in (loaded ?? {})], ["new", "", false]);
   } finally { await cleanup(); }
 });

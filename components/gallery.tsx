@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { editedOn, ideasCsv, publishedOn } from "../lib/export";
-import { events, type Comment, type Idea } from "../lib/model";
+import { stages, type Comment, type Idea, type Stage } from "../lib/model";
 import { errorMessage } from "../lib/i18n";
 import { errorCode, formatDate, request, usePlatform } from "./platform";
 import { Modal } from "./modal";
 
+const stageKey = { new: "stageNew", in_progress: "stageInProgress", closed: "stageClosed" } as const;
 const ideaPath = /^\/ideas\/([0-9a-f-]{36})$/i;
 
 export function Gallery({ initialId = "" }: { initialId?: string }) {
@@ -15,7 +16,7 @@ export function Gallery({ initialId = "" }: { initialId?: string }) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
-  const [eventId, setEventId] = useState("");
+  const [stageFilter, setStageFilter] = useState("");
   const [sort, setSort] = useState<"newest" | "popular">("newest");
   const [selected, setSelected] = useState<Idea | null>(null);
   const [missing, setMissing] = useState(false);
@@ -59,16 +60,16 @@ export function Gallery({ initialId = "" }: { initialId?: string }) {
   }
   function exportCsv() {
     const csv = ideasCsv(visible, location.origin, {
-      title: t.title, author: t.authorHeading, event: t.event, likes: t.likes, publishedOn: t.publishedOn, lastEdited: t.lastEdited, link: t.link,
+      title: t.title, author: t.authorHeading, stage: t.stage, dueDate: t.dueDate, likes: t.likes, publishedOn: t.publishedOn, lastEdited: t.lastEdited, link: t.link,
       problem: t.problemHeading, audience: t.audienceHeading, solution: t.solutionHeading, approach: t.approachHeading, impact: t.impactHeading,
-    });
+    }, { new: t.stageNew, in_progress: t.stageInProgress, closed: t.stageClosed });
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const anchor = document.createElement("a");
     anchor.href = url; anchor.download = `copilot-coffee-ideas-${new Date().toISOString().slice(0, 10)}.csv`;
     anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  const visible = ideas.filter((idea) => (!eventId || idea.eventId === eventId) &&
+  const visible = ideas.filter((idea) => (!stageFilter || idea.stage === stageFilter) &&
     `${idea.title} ${idea.author} ${idea.problem} ${idea.solution}`.normalize("NFC").toLocaleLowerCase(language).includes(query.normalize("NFC").trim().toLocaleLowerCase(language)))
     // Newest by creation, so editing an idea does not move it to the top.
     .sort((a, b) => sort === "popular" ? b.likes - a.likes || publishedOn(b).localeCompare(publishedOn(a)) : publishedOn(b).localeCompare(publishedOn(a)));
@@ -80,7 +81,7 @@ export function Gallery({ initialId = "" }: { initialId?: string }) {
     </section>
     <div className="gallery-toolbar">
       <label className="search-field"><span className="sr-only">{t.search}</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t.searchPlaceholder} /></label>
-      <label><span className="sr-only">{t.event}</span><select value={eventId} onChange={(event) => setEventId(event.target.value)}><option value="">{t.allEvents}</option>{events.map((event) => <option key={event.id} value={event.id}>{event.name}</option>)}</select></label>
+      <label><span className="sr-only">{t.stage}</span><select value={stageFilter} onChange={(event) => setStageFilter(event.target.value)}><option value="">{t.allStages}</option>{stages.map((stage) => <option key={stage} value={stage}>{t[stageKey[stage]]}</option>)}</select></label>
       <label><span className="sr-only">{t.sortLabel}</span><select value={sort} onChange={(event) => setSort(event.target.value === "popular" ? "popular" : "newest")}>
         <option value="newest">{t.sortNewest}</option><option value="popular">{t.sortPopular}</option></select></label>
       <button className="button secondary" onClick={load}>{t.refresh}</button>
@@ -93,7 +94,7 @@ export function Gallery({ initialId = "" }: { initialId?: string }) {
     {ready && !visible.length && <div className="empty-state"><h2>{ideas.length ? t.noResults : t.emptyTitle}</h2><p>{ideas.length ? t.noResultsBody : t.emptyBody}</p>{!ideas.length && <a className="button primary" href="/">{t.workshop}</a>}</div>}
     <div className="idea-grid">{visible.map((idea) =>
       <button type="button" className="idea-card" key={idea.id} onClick={() => open(idea)} aria-label={`${t.readIdea}: ${idea.title}`}>
-        <span className="card-tags"><span className="event-tag">{events.find((event) => event.id === idea.eventId)?.name}</span>{idea.mine && <span className="mine-tag">{t.mine}</span>}</span>
+        <span className="card-tags"><span className={`stage-tag stage-${idea.stage}`}>{t[stageKey[idea.stage]]}</span>{idea.dueDate && <span className="due-tag">📅 {formatDate(idea.dueDate, language)}</span>}{idea.mine && <span className="mine-tag">{t.mine}</span>}</span>
         <h2>{idea.title}</h2><p className="card-problem">{idea.problem}</p>
         <span className="card-bottom"><span className="avatar" aria-hidden="true">{(Array.from(idea.author)[0] ?? "").toLocaleUpperCase(language)}</span><span><strong>{idea.author}</strong><small>{formatDate(publishedOn(idea), language)}</small></span>
           <span className={`card-likes ${idea.liked ? "active" : ""}`} aria-label={`${idea.likes} ${t.likes}`}>👍 {idea.likes}</span>
@@ -115,6 +116,8 @@ function IdeaDetail({ idea, onClose, onChange }: { idea: Idea; onClose: () => vo
   const [copied, setCopied] = useState(false);
   const [likeBusy, setLikeBusy] = useState(false);
   const [likeError, setLikeError] = useState("");
+  const [stageBusy, setStageBusy] = useState(false);
+  const [stageError, setStageError] = useState("");
   const load = useCallback(() =>
     request<Comment[]>(`/api/ideas/${idea.id}/comments`)
       .then((comments) => { setComments(comments); setError(""); setReady(true); })
@@ -145,16 +148,29 @@ function IdeaDetail({ idea, onClose, onChange }: { idea: Idea; onClose: () => vo
     } catch (error) { setError(errorCode(error)); }
     finally { setBusy(false); }
   }
+  async function changeStage(stage: Stage) {
+    setStageBusy(true); setStageError("");
+    try {
+      onChange(await request<Idea>(`/api/ideas/${idea.id}/stage`, { method: "POST", body: JSON.stringify({ stage }) }));
+    } catch (error) { setStageError(errorCode(error)); }
+    finally { setStageBusy(false); }
+  }
   async function copyLink() {
     const url = `${location.origin}/ideas/${idea.id}`;
     try { await navigator.clipboard.writeText(url); setCopied(true); }
     catch { window.prompt(t.copyLink, url); }
   }
   return <Modal title={idea.title} closeLabel={t.close} onClose={onClose} wide>
-    <div className="detail-meta"><span className="event-tag">{events.find((event) => event.id === idea.eventId)?.name}</span><span>{t.by} {idea.author}</span>
+    <div className="detail-meta">
+      {idea.mine ? <label><span className="sr-only">{t.stage}</span><select className={`stage-tag stage-select stage-${idea.stage}`} value={idea.stage} disabled={stageBusy}
+        onChange={(event) => changeStage(event.target.value as Stage)}>{stages.map((stage) => <option key={stage} value={stage}>{t[stageKey[stage]]}</option>)}</select></label>
+        : <span className={`stage-tag stage-${idea.stage}`}>{t[stageKey[idea.stage]]}</span>}
+      {idea.dueDate && <span className="due-tag">📅 {t.dueOn} {formatDate(idea.dueDate, language)}</span>}
+      <span>{t.by} {idea.author}</span>
       {editedOn(idea) && <span className="edited-on">{t.editedOn} {formatDate(editedOn(idea) ?? "", language)}</span>}
       {idea.mine && <a className="text-button edit-link" href={`/?idea=${idea.id}`}>✎ {t.editIdea}</a>}
       <button type="button" className="text-button copy-link" onClick={copyLink}>{copied ? `✓ ${t.linkCopied}` : `🔗 ${t.copyLink}`}</button></div>
+    {stageError && <div role="alert" className="alert error">{errorMessage(stageError, language)}</div>}
     <div className="idea-detail">{(["problem", "audience", "solution", "approach", "impact"] as const).filter((key) => idea[key].trim()).map((key) => <section key={key}><h3>{t[`${key}Heading`]}</h3><p>{idea[key]}</p></section>)}</div>
     <section className="like-section">
       {idea.mine ? <span className="like-count">👍 {idea.likes} {t.likes}</span> :

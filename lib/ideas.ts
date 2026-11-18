@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { AppError } from "./errors";
 import {
-  commentInputSchema, commentRecordSchema, ideaRecordSchema, likeInputSchema, maxLikes, publishable, saveIdeaSchema,
+  commentInputSchema, commentRecordSchema, ideaRecordSchema, likeInputSchema, maxLikes, stageInputSchema, publishable, saveIdeaSchema,
   type Comment, type CommentRecord, type Idea, type IdeaRecord,
 } from "./model";
 import type { User } from "./session";
@@ -95,7 +95,7 @@ export class Ideas {
       const now = later();
       const record: IdeaRecord = {
         ...fields, id: randomUUID(), ownerId, status: publish ? "published" : "draft",
-        createdAt: now, updatedAt: now, ...(publish ? { publishedAt: now } : {}), likes: [],
+        createdAt: now, updatedAt: now, ...(publish ? { publishedAt: now } : {}), stage: "new", likes: [],
       };
       await this.store.write(ideaKey(record.id), JSON.stringify(record));
       return present(record, ownerId);
@@ -150,6 +150,27 @@ export class Ideas {
     const count = (status: IdeaRecord["status"]) => mine.filter(({ record }) => record.status === status).length;
     if (creating && (total >= this.limits.total || (!publishing && count("draft") >= this.limits.drafts))) throw new AppError("IDEA_LIMIT", 429);
     if (publishing && count("published") >= this.limits.published) throw new AppError("IDEA_LIMIT", 429);
+  }
+
+  /** Owners set the progress everyone sees (new, in progress, closed). It is not a content edit, so no "edited" marker. */
+  async setStage(id: string, raw: unknown, owner: User): Promise<Idea> {
+    const parsed = stageInputSchema.safeParse(raw);
+    if (!parsed.success) throw new AppError("INVALID_INPUT");
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const file = await this.store.read(ideaKey(id));
+      const record = file && decode(file);
+      if (!file || !record || record.ownerId !== owner.id) throw new AppError("NOT_FOUND", 404);
+      if (record.stage === parsed.data.stage) return present(record, owner.id);
+      const next: IdeaRecord = { ...record, stage: parsed.data.stage };
+      try {
+        await this.store.write(ideaKey(id), JSON.stringify(next), file.version);
+        return present(next, owner.id);
+      } catch (error) {
+        if (!(error instanceof AppError && error.code === "CONFLICT")) throw error;
+        await sleep(15 + Math.random() * 60 * (attempt + 1));
+      }
+    }
+    throw new AppError("CONFLICT", 409);
   }
 
   /** Adds or removes the user's like. Retries with backoff when simultaneous clicks race on the same idea. */
