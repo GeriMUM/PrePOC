@@ -34,24 +34,34 @@ function decode(file: StoredFile): IdeaRecord {
   return ideaRecordSchema.parse(JSON.parse(file.text));
 }
 
+/** Organizers listed in ADMIN_IDS (Entra object ids, comma-separated) may edit, delete and set the status of every published idea and delete any comment. */
+export function isAdmin(userId: string | undefined, env: Record<string, string | undefined> = process.env): boolean {
+  if (!userId) return false;
+  return (env.ADMIN_IDS ?? "").split(",").map((id) => id.trim().toLowerCase()).filter(Boolean).includes(userId.toLowerCase());
+}
+/** Owners manage their own ideas; admins manage published ones (drafts stay private to their owner). */
+const canManage = (record: IdeaRecord, userId?: string) => Boolean(userId) && (record.ownerId === userId || (record.status === "published" && isAdmin(userId)));
+
 function present(record: IdeaRecord, viewerId?: string): Idea {
   const { ownerId, likes, ...idea } = record;
   const mine = Boolean(viewerId) && ownerId === viewerId;
+  const manage = canManage(record, viewerId);
   return {
     ...idea,
-    // Owners get a content revision for optimistic edits: the time of the last content change, never the
-    // storage hash, which covers the hidden like list and would let an owner work out who liked.
-    ...(mine ? { version: record.updatedAt } : {}),
+    // Whoever may edit gets a content revision for optimistic edits: the time of the last content change, never
+    // the storage hash, which covers the hidden like list and would let someone work out who liked.
+    ...(manage ? { version: record.updatedAt } : {}),
     likes: likes.length,
     // Records written before likes were hashed hold raw account ids; both forms count as the viewer's like.
     liked: Boolean(viewerId) && (likes.includes(likeToken(record.id, viewerId ?? "")) || likes.includes(viewerId ?? "")),
-    mine,
+    mine, manage,
   };
 }
 
 function presentComment(record: CommentRecord, viewerId?: string): Comment {
   const { authorId, ...comment } = record;
-  return { ...comment, mine: Boolean(viewerId) && authorId === viewerId };
+  const mine = Boolean(viewerId) && authorId === viewerId;
+  return { ...comment, mine, deletable: mine || isAdmin(viewerId) };
 }
 
 /** Decodes every readable record; one damaged file is logged and skipped instead of failing the whole list. */
@@ -81,7 +91,7 @@ export class Ideas {
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
-  /** Creates an idea, or updates one of the owner's ideas, drafts and published ones alike. */
+  /** Creates an idea, or updates one of the owner's ideas (drafts and published), or any published idea for an admin. */
   async save(raw: unknown, owner: User): Promise<Idea> {
     const ownerId = owner.id;
     const parsed = saveIdeaSchema.safeParse(raw);
@@ -106,8 +116,10 @@ export class Ideas {
     for (let attempt = 0; attempt < 8; attempt++) {
       const file = await this.store.read(ideaKey(id));
       const existing = file && decode(file);
-      if (!file || !existing || existing.ownerId !== ownerId) throw new AppError("NOT_FOUND", 404);
+      if (!file || !existing || !canManage(existing, ownerId)) throw new AppError("NOT_FOUND", 404);
       if (existing.updatedAt !== version) throw new AppError("CONFLICT", 409);
+      // An admin editing someone else's idea keeps that person as the author.
+      if (existing.ownerId !== ownerId) fields.author = existing.author;
       const status = publish || existing.status === "published" ? "published" : "draft";
       if (status === "published" && !publishable(fields)) throw new AppError("INCOMPLETE_IDEA");
       if (status === "published" && existing.status === "draft") await this.checkIdeaLimits(ownerId, false, true);
@@ -131,7 +143,7 @@ export class Ideas {
   async deleteIdea(id: string, owner: User): Promise<void> {
     const file = await this.store.read(ideaKey(id));
     const record = file && decode(file);
-    if (!file || !record || record.ownerId !== owner.id) throw new AppError("NOT_FOUND", 404);
+    if (!file || !record || !canManage(record, owner.id)) throw new AppError("NOT_FOUND", 404);
     // The idea goes first: if removing comments fails halfway, nothing stays published without its conversation.
     await this.store.delete(ideaKey(id));
     // A like or edit that was in flight may have written the record back; it loses.
@@ -159,7 +171,7 @@ export class Ideas {
     for (let attempt = 0; attempt < 8; attempt++) {
       const file = await this.store.read(ideaKey(id));
       const record = file && decode(file);
-      if (!file || !record || record.ownerId !== owner.id) throw new AppError("NOT_FOUND", 404);
+      if (!file || !record || !canManage(record, owner.id)) throw new AppError("NOT_FOUND", 404);
       if (record.stage === parsed.data.stage) return present(record, owner.id);
       const next: IdeaRecord = { ...record, stage: parsed.data.stage };
       try {
@@ -221,7 +233,7 @@ export class Ideas {
   async deleteComment(ideaId: string, commentId: string, author: User): Promise<void> {
     const file = await this.store.read(commentKey(ideaId, commentId));
     const record = file && commentRecordSchema.parse(JSON.parse(file.text));
-    if (!file || !record || record.authorId !== author.id) throw new AppError("NOT_FOUND", 404);
+    if (!file || !record || (record.authorId !== author.id && !isAdmin(author.id))) throw new AppError("NOT_FOUND", 404);
     await this.store.delete(commentKey(ideaId, commentId));
   }
 

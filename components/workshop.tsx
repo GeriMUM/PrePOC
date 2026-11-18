@@ -31,10 +31,15 @@ export function Workshop({ coachConfigured, coachName, userName, initialId = "" 
 
   const load = useCallback(() =>
     request<Idea[]>("/api/ideas?mine=1")
-      .then((ideas) => {
-        setIdeas(ideas); setError(""); setReady(true);
-        const idea = pending.current ? ideas.find((idea) => idea.id === pending.current) : undefined;
+      .then(async (ideas) => {
+        let idea = pending.current ? ideas.find((idea) => idea.id === pending.current) : undefined;
+        // Admins can open other people's published ideas from the gallery.
+        if (pending.current && !idea) {
+          idea = (await request<Idea[]>("/api/ideas")).find((entry) => entry.id === pending.current && entry.manage);
+          if (idea) ideas = [idea, ...ideas];
+        }
         pending.current = "";
+        setIdeas(ideas); setError(""); setReady(true);
         if (idea) { setFields(idea); setCurrent(idea); }
       })
       .catch((error: unknown) => setError(errorCode(error))), []);

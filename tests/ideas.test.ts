@@ -365,3 +365,36 @@ test("everyone sees an idea's status; only its owner can change it, without an e
     assert.deepEqual([loaded?.stage, loaded?.dueDate, "eventId" in (loaded ?? {})], ["new", "", false]);
   } finally { await cleanup(); }
 });
+
+test("admins listed in ADMIN_IDS manage every published idea and comment, but never others' drafts", async () => {
+  const { ideas, cleanup } = await setup();
+  const admin = { id: randomUUID(), name: "Organizer" };
+  const previous = process.env.ADMIN_IDS;
+  process.env.ADMIN_IDS = ` ${other.id.toUpperCase()}, ${admin.id} `;
+  try {
+    const draft = await ideas.save(input, owner);
+    const published = await ideas.save({ ...input, publish: true }, owner);
+    const [listed] = await ideas.all(undefined, admin.id);
+    assert.deepEqual([listed.mine, listed.manage, listed.version], [false, true, published.updatedAt]);
+    // Edit keeps the original author.
+    const edited = await ideas.save({ ...input, title: "Fixed typo", id: published.id, version: listed.version, publish: false }, admin);
+    assert.deepEqual([edited.title, edited.author, edited.manage], ["Fixed typo", owner.name, true]);
+    assert.equal((await ideas.setStage(published.id, { stage: "closed" }, admin)).stage, "closed");
+    const comment = await ideas.comment(published.id, { text: "Spam" }, { id: randomUUID(), name: "Someone" });
+    assert.deepEqual((await ideas.comments(published.id, admin.id)).map((entry) => [entry.mine, entry.deletable]), [[false, true]]);
+    await ideas.deleteComment(published.id, comment.id, admin);
+    // Drafts stay private to their owner, even for admins.
+    await assert.rejects(ideas.save({ ...input, id: draft.id, version: draft.version }, admin), hasCode("NOT_FOUND"));
+    await assert.rejects(ideas.setStage(draft.id, { stage: "closed" }, admin), hasCode("NOT_FOUND"));
+    await assert.rejects(ideas.deleteIdea(draft.id, admin), hasCode("NOT_FOUND"));
+    // Ordinary colleagues still cannot.
+    const colleague = { id: randomUUID(), name: "Colleague" };
+    assert.equal((await ideas.all(undefined, colleague.id))[0].manage, false);
+    await assert.rejects(ideas.setStage(published.id, { stage: "new" }, colleague), hasCode("NOT_FOUND"));
+    await ideas.deleteIdea(published.id, admin);
+    assert.deepEqual(await ideas.all(), []);
+  } finally {
+    if (previous === undefined) delete process.env.ADMIN_IDS; else process.env.ADMIN_IDS = previous;
+    await cleanup();
+  }
+});

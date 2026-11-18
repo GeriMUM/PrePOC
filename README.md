@@ -88,6 +88,7 @@ For a local production build, set `STORAGE_DRIVER=file` and a random
    | `ENTRA_TENANT_ID` | Directory (tenant) ID of the company Entra tenant |
    | `ENTRA_CLIENT_ID` | Application (client) ID of the app registration |
    | `ENTRA_CLIENT_SECRET` | Client secret value of the app registration |
+   | `ADMIN_IDS` | Optional: Entra object ids of organizers who may edit, delete and set the status of every published idea and delete any comment |
    | `COPILOT_DIRECT_LINE_SECRET` | Direct Line secret of the Copilot Studio agent (see below) |
    | `COPILOT_DIRECT_LINE_URL` | Optional, e.g. `https://europe.directline.botframework.com` |
 

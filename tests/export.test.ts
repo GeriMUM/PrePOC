@@ -11,7 +11,7 @@ const names = { new: "New", in_progress: "In progress", closed: "Closed" } as co
 const idea: Idea = {
   id: "0b6f7a1e-5b4e-4d4c-9b5e-1a2b3c4d5e6f", title: 'Time "booking"', author: "Alex Example", dueDate: "2027-01-15", stage: "in_progress",
   problem: "=HYPERLINK(\"https://evil.example\")", audience: "line one\nline two", solution: "-5 minutes", approach: "", impact: "@sum",
-  status: "published", createdAt: "2026-11-08T09:00:00.000Z", publishedAt: "2026-11-09T10:00:00.000Z", updatedAt: "2026-11-10T11:00:00.000Z", likes: 3, liked: false, mine: false,
+  status: "published", createdAt: "2026-11-08T09:00:00.000Z", publishedAt: "2026-11-09T10:00:00.000Z", updatedAt: "2026-11-10T11:00:00.000Z", likes: 3, liked: false, mine: false, manage: false,
 };
 
 test("cells are quoted, quotes doubled, and spreadsheet formulas neutralised", () => {

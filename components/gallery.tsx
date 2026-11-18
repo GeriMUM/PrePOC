@@ -162,13 +162,13 @@ function IdeaDetail({ idea, onClose, onChange }: { idea: Idea; onClose: () => vo
   }
   return <Modal title={idea.title} closeLabel={t.close} onClose={onClose} wide>
     <div className="detail-meta">
-      {idea.mine ? <label><span className="sr-only">{t.stage}</span><select className={`stage-tag stage-select stage-${idea.stage}`} value={idea.stage} disabled={stageBusy}
+      {idea.manage ? <label><span className="sr-only">{t.stage}</span><select className={`stage-tag stage-select stage-${idea.stage}`} value={idea.stage} disabled={stageBusy}
         onChange={(event) => changeStage(event.target.value as Stage)}>{stages.map((stage) => <option key={stage} value={stage}>{t[stageKey[stage]]}</option>)}</select></label>
         : <span className={`stage-tag stage-${idea.stage}`}>{t[stageKey[idea.stage]]}</span>}
       {idea.dueDate && <span className="due-tag">📅 {t.dueOn} {formatDate(idea.dueDate, language)}</span>}
       <span>{t.by} {idea.author}</span>
       {editedOn(idea) && <span className="edited-on">{t.editedOn} {formatDate(editedOn(idea) ?? "", language)}</span>}
-      {idea.mine && <a className="text-button edit-link" href={`/?idea=${idea.id}`}>✎ {t.editIdea}</a>}
+      {idea.manage && <a className="text-button edit-link" href={`/?idea=${idea.id}`}>✎ {t.editIdea}</a>}
       <button type="button" className="text-button copy-link" onClick={copyLink}>{copied ? `✓ ${t.linkCopied}` : `🔗 ${t.copyLink}`}</button></div>
     {stageError && <div role="alert" className="alert error">{errorMessage(stageError, language)}</div>}
     <div className="idea-detail">{(["problem", "audience", "solution", "approach", "impact"] as const).filter((key) => idea[key].trim()).map((key) => <section key={key}><h3>{t[`${key}Heading`]}</h3><p>{idea[key]}</p></section>)}</div>
@@ -183,7 +183,7 @@ function IdeaDetail({ idea, onClose, onChange }: { idea: Idea; onClose: () => vo
       {!ready && !error && <p role="status">{t.loading}</p>}
       {ready && !comments.length && <p className="microcopy">{t.noComments}</p>}
       <ol className="comments">{comments.map((comment) => <li key={comment.id}><div><strong>{comment.author}</strong><time dateTime={comment.createdAt}>{formatDate(comment.createdAt, language)}</time></div><p>{comment.text}</p>
-        {comment.mine && <button type="button" className="text-button delete-comment" disabled={busy} onClick={() => removeComment(comment.id)}>{t.deleteComment}</button>}</li>)}</ol>
+        {comment.deletable && <button type="button" className="text-button delete-comment" disabled={busy} onClick={() => removeComment(comment.id)}>{t.deleteComment}</button>}</li>)}</ol>
       {error && <div role="alert" className="alert error">{errorMessage(error, language)}{!ready && <button className="text-button" onClick={load}>{t.retry}</button>}</div>}
       {posted && <p className="alert success" role="status">{t.commentPosted}</p>}
       <form onSubmit={submit}>
